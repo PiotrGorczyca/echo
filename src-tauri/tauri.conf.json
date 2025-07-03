@@ -1,0 +1,65 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "EchoType",
+  "version": "0.1.0",
+  "identifier": "com.echotype.app",
+  "build": {
+    "beforeDevCommand": "bun run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "bun run build",
+    "frontendDist": "../build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "EchoType Settings",
+        "width": 800,
+        "height": 600,
+        "visible": false,
+        "skipTaskbar": true,
+        "minimizable": true,
+        "maximizable": false,
+        "closable": true,
+        "resizable": true
+      },
+      {
+        "label": "overlay",
+        "title": "EchoType Status",
+        "width": 400,
+        "height": 120,
+        "x": 100,
+        "y": 100,
+        "visible": false,
+        "skipTaskbar": true,
+        "minimizable": false,
+        "maximizable": false,
+        "closable": false,
+        "resizable": false,
+        "alwaysOnTop": false,
+        "decorations": false,
+        "transparent": true,
+        "url": "/overlay"
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "plugins": {
+    "shell": {
+      "open": true
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["deb", "rpm"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}
