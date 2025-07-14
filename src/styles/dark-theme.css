@@ -1,0 +1,160 @@
+/* Dark Theme with Calming Blue Accents */
+:root {
+  /* Primary Colors */
+  --bg-primary: #1a1a1a;           /* Main background */
+  --bg-secondary: #2d2d2d;         /* Card/section backgrounds */
+  --bg-tertiary: #3a3a3a;          /* Input backgrounds */
+
+  /* Accent Colors (Calming Blue) */
+  --accent-primary: #4A90E2;       /* Primary blue */
+  --accent-secondary: #5BA3F5;     /* Lighter blue */
+  --accent-tertiary: #3A7BD5;      /* Darker blue */
+
+  /* Text Colors */
+  --text-primary: #ffffff;         /* Primary text */
+  --text-secondary: #b0b0b0;       /* Secondary text */
+  --text-muted: #808080;           /* Muted text */
+
+  /* Status Colors */
+  --success: #4CAF50;              /* Success states */
+  --warning: #FF9800;              /* Warning states */
+  --error: #F44336;                /* Error states */
+  --info: #2196F3;                 /* Info states */
+
+  /* Interactive Elements */
+  --border-primary: #404040;       /* Primary borders */
+  --border-accent: #4A90E2;        /* Accent borders */
+  --hover-bg: #404040;             /* Hover backgrounds */
+
+  /* Shadows and Effects */
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-glow: 0 0 0 2px rgba(74, 144, 226, 0.3);
+
+  /* Animation Durations */
+  --duration-fast: 150ms;
+  --duration-normal: 300ms;
+  --duration-slow: 500ms;
+
+  /* Easing Functions */
+  --ease-out: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --ease-in: cubic-bezier(0.55, 0.055, 0.675, 0.19);
+  --ease-in-out: cubic-bezier(0.645, 0.045, 0.355, 1);
+}
+
+/* Dark theme base styles */
+.dark-theme {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+/* Interactive element base styles */
+.interactive {
+  transition: all var(--duration-fast) var(--ease-out);
+  cursor: pointer;
+}
+
+.interactive:hover {
+  background-color: var(--hover-bg);
+}
+
+.interactive:focus {
+  outline: none;
+  box-shadow: var(--shadow-glow);
+}
+
+/* Button styles */
+.btn {
+  padding: 8px 16px;
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  transition: all var(--duration-fast) var(--ease-out);
+  cursor: pointer;
+}
+
+.btn:hover {
+  background-color: var(--hover-bg);
+  border-color: var(--border-accent);
+}
+
+.btn-primary {
+  background-color: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: white;
+}
+
+.btn-primary:hover {
+  background-color: var(--accent-tertiary);
+  border-color: var(--accent-tertiary);
+}
+
+.btn-secondary {
+  background-color: transparent;
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.btn-secondary:hover {
+  background-color: var(--accent-primary);
+  color: white;
+}
+
+.btn-accent {
+  background-color: var(--success);
+  border-color: var(--success);
+  color: white;
+}
+
+.btn-accent:hover {
+  background-color: #45a049;
+  border-color: #45a049;
+}
+
+/* Input styles */
+.input {
+  padding: 10px 12px;
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.input:focus {
+  border-color: var(--accent-primary);
+  box-shadow: var(--shadow-glow);
+}
+
+.input::placeholder {
+  color: var(--text-muted);
+}
+
+/* Card styles */
+.card {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  box-shadow: var(--shadow-sm);
+}
+
+/* Status indicator styles */
+.status-success {
+  color: var(--success);
+}
+
+.status-warning {
+  color: var(--warning);
+}
+
+.status-error {
+  color: var(--error);
+}
+
+.status-info {
+  color: var(--info);
+} 

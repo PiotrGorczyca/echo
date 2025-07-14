@@ -1,0 +1,184 @@
+/* Settings Drawer Animations */
+
+/* Drawer slide-in animation */
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slide-out-right {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+/* Backdrop fade animations */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* Page transition animations */
+@keyframes page-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes page-fade-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+}
+
+/* Skeleton loading animation */
+@keyframes skeleton-loading {
+  0% {
+    background-position: -200px 0;
+  }
+  100% {
+    background-position: calc(200px + 100%) 0;
+  }
+}
+
+/* Micro-interaction animations */
+@keyframes button-press {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(0.95);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes glow-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(74, 144, 226, 0.1);
+  }
+}
+
+/* Settings drawer classes */
+.settings-drawer {
+  animation: slide-in-right var(--duration-normal) var(--ease-out);
+}
+
+.settings-drawer.closing {
+  animation: slide-out-right 250ms var(--ease-in);
+}
+
+.settings-backdrop {
+  animation: fade-in 200ms var(--ease-out);
+}
+
+.settings-backdrop.closing {
+  animation: fade-out 200ms var(--ease-in);
+}
+
+/* Page transition classes */
+.page-enter {
+  animation: page-fade-in 200ms var(--ease-out);
+}
+
+.page-exit {
+  animation: page-fade-out 200ms var(--ease-in);
+}
+
+/* Interactive element animations */
+.btn:active {
+  animation: button-press var(--duration-fast) var(--ease-out);
+}
+
+.input:focus,
+.btn:focus {
+  animation: glow-pulse 2s infinite;
+}
+
+/* Loading skeleton */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--bg-tertiary) 0px,
+    rgba(74, 144, 226, 0.1) 40px,
+    var(--bg-tertiary) 80px
+  );
+  background-size: 200px;
+  animation: skeleton-loading 1.2s ease-in-out infinite;
+}
+
+/* Responsive animation preferences */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  
+  .settings-drawer {
+    animation: none;
+  }
+  
+  .settings-backdrop {
+    animation: none;
+  }
+}
+
+/* Hover effects with smooth transitions */
+.smooth-hover {
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.smooth-hover:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+/* Focus trap for accessibility */
+.focus-trap {
+  transition: box-shadow var(--duration-fast) var(--ease-out);
+}
+
+.focus-trap:focus-within {
+  box-shadow: var(--shadow-glow);
+} 

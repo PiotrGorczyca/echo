@@ -31,20 +31,57 @@ pub enum DeviceType {
     Cpu,
     Cuda,
     Metal,
+    Rocm,
+}
+
+impl DeviceType {
+    /// Get all available device types for the current system
+    pub fn get_available_devices() -> Vec<DeviceType> {
+        let mut devices = vec![DeviceType::Cpu];
+        
+        #[cfg(feature = "cuda")]
+        {
+            devices.push(DeviceType::Cuda);
+        }
+        
+        #[cfg(all(feature = "metal", target_os = "macos"))]
+        {
+            devices.push(DeviceType::Metal);
+        }
+        
+        #[cfg(feature = "rocm")]
+        {
+            // Only include ROCm if we have compatible hardware
+            if crate::rocm_detection::detect_rocm_compatibility().is_supported {
+                devices.push(DeviceType::Rocm);
+            }
+        }
+        
+        devices
+    }
 }
 
 impl Default for DeviceType {
     fn default() -> Self {
         // Auto-detect best available device
-        #[cfg(feature = "cuda")]
+        #[cfg(feature = "rocm")]
+        {
+            // Only default to ROCm if we have compatible hardware
+            if crate::rocm_detection::detect_rocm_compatibility().is_supported {
+                DeviceType::Rocm
+            } else {
+                DeviceType::Cpu
+            }
+        }
+        #[cfg(all(feature = "cuda", not(feature = "rocm")))]
         {
             DeviceType::Cuda
         }
-        #[cfg(all(feature = "metal", target_os = "macos"))]
+        #[cfg(all(feature = "metal", target_os = "macos", not(any(feature = "rocm", feature = "cuda"))))]
         {
             DeviceType::Metal
         }
-        #[cfg(not(any(feature = "cuda", all(feature = "metal", target_os = "macos"))))]
+        #[cfg(not(any(feature = "rocm", feature = "cuda", all(feature = "metal", target_os = "macos"))))]
         {
             DeviceType::Cpu
         }
@@ -146,6 +183,14 @@ impl TranscriptionService {
     
     pub async fn transcribe(&self, audio_file_path: &str) -> Result<String> {
         self.backend.transcribe(audio_file_path).await
+    }
+    
+    pub fn get_config(&self) -> &TranscriptionConfig {
+        &self.config
+    }
+    
+    pub fn is_candle_whisper(&self) -> bool {
+        matches!(self.config.mode, TranscriptionMode::CandleWhisper)
     }
     
     fn default_model_path(model_size: &WhisperModelSize) -> Option<String> {

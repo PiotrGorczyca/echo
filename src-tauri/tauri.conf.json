@@ -14,14 +14,15 @@
       {
         "label": "main",
         "title": "EchoType Settings",
-        "width": 800,
-        "height": 600,
+        "width": 500,
+        "fullscreen": false,
         "visible": false,
         "skipTaskbar": true,
         "minimizable": true,
         "maximizable": false,
         "closable": true,
-        "resizable": true
+        "resizable": true,
+        "center": false
       },
       {
         "label": "overlay",
@@ -36,10 +37,11 @@
         "maximizable": false,
         "closable": false,
         "resizable": false,
-        "alwaysOnTop": false,
+        "alwaysOnTop": true,
         "decorations": false,
         "transparent": true,
-        "url": "/overlay"
+        "url": "/overlay",
+        "focus": false
       }
     ],
     "security": {
@@ -58,7 +60,7 @@
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
-      "icons/icon.icns",
+      "icons/310x310.png",
       "icons/icon.ico"
     ]
   }

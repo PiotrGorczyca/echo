@@ -22,10 +22,16 @@ impl OpenAIBackend {
 #[async_trait]
 impl TranscriptionBackend for OpenAIBackend {
     async fn transcribe(&self, audio_file_path: &str) -> Result<String> {
-        let client = reqwest::Client::new();
+        use std::time::Duration;
+        
+        // Create client with timeout
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(30)) // 30 second timeout
+            .build()?;
         
         // Read the audio file
         let audio_data = std::fs::read(audio_file_path)?;
+        println!("📤 Uploading {} bytes to OpenAI API", audio_data.len());
         
         // Create multipart form
         let form = reqwest::multipart::Form::new()
@@ -37,12 +43,15 @@ impl TranscriptionBackend for OpenAIBackend {
             )
             .text("model", "whisper-1");
         
+        println!("🌐 Sending request to OpenAI API...");
         let response = client
             .post("https://api.openai.com/v1/audio/transcriptions")
             .header("Authorization", format!("Bearer {}", self.api_key))
             .multipart(form)
             .send()
             .await?;
+        
+        println!("📨 Received response from OpenAI API");
         
         let status = response.status();
         if !status.is_success() {

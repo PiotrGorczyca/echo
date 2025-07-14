@@ -42,10 +42,53 @@ async-trait = "0.1"
 whisper-rs = "0.11"
 futures-util = "0.3"
 once_cell = "1.19"
+rand = "0.8"
+
+# MCP and AI Agent dependencies
+jsonrpc-core = "18.0"
+jsonrpc-ws-server = "18.0"
+jsonrpc-http-server = "18.0"
+jsonrpc-derive = "18.0"
+tungstenite = "0.23"
+tokio-tungstenite = "0.23"
+url = "2.5"
+
+# Database dependencies
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# AI/NLP dependencies
+regex = "1.10"
+unicode-segmentation = "1.10"
+levenshtein = "1.0"
+
+# HTTP client for API integrations
+base64 = "0.22"
+mime = "0.3"
+form-data = "0.6"
+urlencoding = "2.1"
+
+# Encryption and security
+ring = "0.17"
+data-encoding = "2.5"
+keyring = "2.3"
+
+# Configuration and serialization
+toml = "0.8"
+config = "0.14"
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
+# Additional utilities
+thiserror = "1.0"
+parking_lot = "0.12"
 
 [features]
-default = []
+default = ["rocm"]
 # GPU acceleration features for potential future use
 cuda = []
 metal = []
+rocm = []
 

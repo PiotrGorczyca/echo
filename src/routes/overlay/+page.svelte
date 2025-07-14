@@ -19,26 +19,65 @@
   let fadeTimeout: ReturnType<typeof setTimeout> | null = null;
   let cursorTrackingInterval: ReturnType<typeof setInterval> | null = null;
   let currentWindow: any = null;
+  let isVoiceActivationListening: boolean = $state(false);
 
   onMount(() => {
     let unlisten: any;
+    let unlistenWakeWord: any;
+    let voiceStatusInterval: ReturnType<typeof setInterval> | null = null;
     
     // Setup event listener and get window reference
     (async () => {
       const { listen } = await import("@tauri-apps/api/event");
       const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const { invoke } = await import("@tauri-apps/api/core");
       currentWindow = getCurrentWindow();
       
       unlisten = await listen<StatusUpdate>("status-update", (event) => {
         currentStatus = event.payload;
         showStatus();
       });
+      
+      // Listen for wake word detection events
+      unlistenWakeWord = await listen("wake-word-detected", (event) => {
+        console.log("Wake word detected in overlay:", event.payload);
+        isVoiceActivationListening = true;
+        // Show brief indication that wake word was detected
+        currentStatus = {
+          message: "🎤 Wake word detected - Starting recording...",
+          type: "recording",
+          timestamp: Date.now()
+        };
+        showStatus();
+      });
+      
+      // Poll voice activation status every 5 seconds
+      voiceStatusInterval = setInterval(async () => {
+        try {
+          isVoiceActivationListening = await invoke("get_voice_activation_status");
+        } catch (err) {
+          console.error("Failed to check voice activation status:", err);
+        }
+      }, 5000);
+      
+      // Check initial status
+      try {
+        isVoiceActivationListening = await invoke("get_voice_activation_status");
+      } catch (err) {
+        console.error("Failed to check initial voice activation status:", err);
+      }
     })();
+
+    // Add keyboard event listener
+    document.addEventListener('keydown', handleKeydown);
 
     // Cleanup function
     return () => {
       if (unlisten) unlisten();
+      if (unlistenWakeWord) unlistenWakeWord();
+      if (voiceStatusInterval) clearInterval(voiceStatusInterval);
       stopCursorTracking();
+      document.removeEventListener('keydown', handleKeydown);
     };
   });
 
@@ -51,10 +90,9 @@
     }
     
     try {
-      // Show the window and bring it to top
+      // Show the window (already configured to not steal focus)
       if (currentWindow) {
         await currentWindow.show();
-        await currentWindow.setAlwaysOnTop(true);
       }
     } catch (error) {
       console.error("Failed to show overlay window:", error);
@@ -77,9 +115,8 @@
     stopCursorTracking();
     
     try {
-      // Properly hide the window and remove always-on-top
+      // Hide the window
       if (currentWindow) {
-        await currentWindow.setAlwaysOnTop(false);
         await currentWindow.hide();
       }
       
@@ -152,15 +189,25 @@
     stopCursorTracking();
   });
 
+  // Handle keyboard events for dismissing error overlays
+  function handleKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape' && currentStatus.type === "error") {
+      hideStatus();
+    }
+  }
+
   // Hide overlay when recording stops (for success/error states)
   $effect(() => {
-    if (currentStatus.type === "success" || currentStatus.type === "error") {
-      // Auto-hide after showing success/error
+    if (currentStatus.type === "success") {
+      // Auto-hide success messages after 3 seconds
       if (fadeTimeout) clearTimeout(fadeTimeout);
       fadeTimeout = setTimeout(async () => {
         await hideStatus();
         fadeTimeout = null;
       }, 3000);
+    } else if (currentStatus.type === "error") {
+      // Error messages stay visible until manually dismissed with ESC
+      if (fadeTimeout) clearTimeout(fadeTimeout);
     } else if (currentStatus.type === "idle") {
       // Hide immediately for idle state
       hideStatus();
@@ -189,9 +236,17 @@
     <div class="status-content">
       <span class="status-icon">{getStatusIcon(currentStatus.type)}</span>
       <span class="status-message">{currentStatus.message}</span>
+      {#if isVoiceActivationListening && currentStatus.type === "idle"}
+        <span class="voice-indicator">🎙️</span>
+      {/if}
+      {#if currentStatus.type === "error"}
+        <span class="dismiss-hint">Press ESC to dismiss</span>
+      {/if}
     </div>
     {#if currentStatus.type === "recording"}
       <div class="recording-pulse"></div>
+    {:else if currentStatus.type === "transcribing"}
+      <div class="transcribing-spinner"></div>
     {/if}
   </div>
 {/if}
@@ -214,50 +269,78 @@
     backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-left: 4px solid #2196f3;
-    border-radius: 8px;
-    padding: 16px 20px;
-    margin: 8px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    border-radius: 6px;
+    padding: 6px 8px;
+    margin: 4px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
     animation: slideIn 0.3s ease-out;
     position: relative;
-    max-width: 380px;
-    min-height: 60px;
+    max-width: 200px;
+    min-height: 24px;
   }
 
   .status-content {
     display: flex;
-    align-items: flex-start;
-    gap: 12px;
+    align-items: center;
+    gap: 8px;
   }
 
   .status-icon {
-    font-size: 18px;
+    font-size: 14px;
     flex-shrink: 0;
-    margin-top: 2px;
   }
 
   .status-message {
     color: white;
-    font-size: 15px;
+    font-size: 13px;
     font-weight: 500;
-    line-height: 1.4;
+    line-height: 1.3;
     flex: 1;
     word-wrap: break-word;
     overflow-wrap: break-word;
-    max-height: 60px;
+    max-height: 40px;
     overflow: hidden;
+  }
+
+  .voice-indicator {
+    opacity: 0.7;
+    font-size: 10px;
+    margin-left: 4px;
+    animation: pulse-gentle 2s infinite;
+  }
+
+  .dismiss-hint {
+    opacity: 0.6;
+    font-size: 10px;
+    color: #ccc;
+    margin-left: 4px;
+    font-style: italic;
+    align-self: center;
   }
 
   .recording-pulse {
     position: absolute;
     top: 50%;
-    right: 12px;
+    right: 8px;
     transform: translateY(-50%);
-    width: 8px;
-    height: 8px;
+    width: 6px;
+    height: 6px;
     background: #f44336;
     border-radius: 50%;
     animation: pulse 1s infinite;
+  }
+
+  .transcribing-spinner {
+    position: absolute;
+    top: 50%;
+    right: 8px;
+    transform: translateY(-50%);
+    width: 10px;
+    height: 10px;
+    border: 2px solid #ff9800;
+    border-top: 2px solid transparent;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
   }
 
   @keyframes slideIn {
@@ -282,16 +365,25 @@
     }
   }
 
-  .debug-indicator {
-    position: fixed;
-    top: 10px;
-    left: 10px;
-    background: red;
-    color: white;
-    padding: 10px;
-    border-radius: 4px;
-    font-size: 12px;
-    z-index: 9999;
-    border: 2px solid yellow;
+  @keyframes pulse-gentle {
+    0%, 100% {
+      opacity: 1;
+      transform: translateY(-50%) scale(1);
+    }
+    50% {
+      opacity: 0.5;
+      transform: translateY(-50%) scale(1.1);
+    }
   }
+
+  @keyframes spin {
+    0% {
+      transform: translateY(-50%) rotate(0deg);
+    }
+    100% {
+      transform: translateY(-50%) rotate(360deg);
+    }
+  }
+
+
 </style> 

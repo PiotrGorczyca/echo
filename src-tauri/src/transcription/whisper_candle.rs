@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use once_cell::sync::Lazy;
 use tauri::{AppHandle, Emitter};
-use std::time::{Duration, Instant};
+use std::time::{Instant};
 
 use crate::{DownloadProgress, DownloadEvent};
 
@@ -97,7 +97,16 @@ impl CandleWhisperBackend {
         let python_script = self.create_python_script()?;
         
         // Run the Python script
-        let output = tokio::process::Command::new("python3")
+        let python_cmd = if self.device_type == DeviceType::Rocm {
+            // Use the ROCm virtual environment Python
+            let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/home/user".to_string());
+            format!("{}/.rocm_pytorch_env/bin/python", home_dir)
+        } else {
+            "python3".to_string()
+        };
+        
+        let mut command = tokio::process::Command::new(&python_cmd);
+        command
             .arg(&python_script)
             .arg("--model")
             .arg(self.get_model_id())
@@ -106,11 +115,24 @@ impl CandleWhisperBackend {
                 DeviceType::Cpu => "cpu",
                 DeviceType::Cuda => "cuda",
                 DeviceType::Metal => "mps",
+                DeviceType::Rocm => "cuda", // ROCm uses PyTorch's CUDA API
             })
             .arg("--audio")
-            .arg(audio_path)
-            .output()
-            .await?;
+            .arg(audio_path);
+
+        // Set ROCm environment variables when using ROCm device
+        if self.device_type == DeviceType::Rocm {
+            let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/home/user".to_string());
+            let rocm_site_packages = format!("{}/.rocm_pytorch_env/lib/python3.13/site-packages", home_dir);
+            command
+                .env("HSA_OVERRIDE_GFX_VERSION", "11.0.2")
+                .env("HIP_VISIBLE_DEVICES", "0")
+                .env("ROCR_VISIBLE_DEVICES", "0")
+                .env("CUDA_VISIBLE_DEVICES", "0")
+                .env("PYTHONPATH", &rocm_site_packages);
+        }
+
+        let output = command.output().await?;
         
         if !output.status.success() {
             let error_msg = String::from_utf8_lossy(&output.stderr);
@@ -158,13 +180,35 @@ impl CandleWhisperBackend {
         // Run the download script with streaming output for progress tracking
         println!("Running download command...");
         
-        let mut child = tokio::process::Command::new("python3")
-            .arg(&download_script)
-            .arg("--model")
-            .arg(self.get_model_id())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn()?;
+        let python_cmd = if self.device_type == DeviceType::Rocm {
+            // Use the ROCm virtual environment Python
+            let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/home/user".to_string());
+            format!("{}/.rocm_pytorch_env/bin/python", home_dir)
+        } else {
+            "python3".to_string()
+        };
+        
+        let mut child = {
+            let mut cmd = tokio::process::Command::new(&python_cmd);
+            cmd.arg(&download_script)
+                .arg("--model")
+                .arg(self.get_model_id())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped());
+            
+            // Set ROCm environment variables when using ROCm device
+            if self.device_type == DeviceType::Rocm {
+                let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/home/user".to_string());
+                let rocm_site_packages = format!("{}/.rocm_pytorch_env/lib/python3.13/site-packages", home_dir);
+                cmd.env("HSA_OVERRIDE_GFX_VERSION", "11.0.2")
+                    .env("HIP_VISIBLE_DEVICES", "0")
+                    .env("ROCR_VISIBLE_DEVICES", "0")
+                    .env("CUDA_VISIBLE_DEVICES", "0")
+                    .env("PYTHONPATH", &rocm_site_packages);
+            }
+            
+            cmd.spawn()?
+        };
         
         let stdout = child.stdout.take().ok_or_else(|| anyhow!("Failed to get stdout"))?;
         let stderr = child.stderr.take().ok_or_else(|| anyhow!("Failed to get stderr"))?;
@@ -266,7 +310,7 @@ impl CandleWhisperBackend {
         Ok(stdout_lines.join("\n"))
     }
     
-    async fn parse_and_emit_progress(&self, line: &str, app_handle: &AppHandle, current_stage: &mut &str, start_time: Instant) {
+    async fn parse_and_emit_progress(&self, line: &str, app_handle: &AppHandle, current_stage: &mut &str, _start_time: Instant) {
         let model_name = self.get_model_id();
         
         // Update stage based on output
@@ -313,12 +357,33 @@ impl CandleWhisperBackend {
         let check_script = self.create_check_script()?;
         
         // Run the check script
-        let output = tokio::process::Command::new("python3")
-            .arg(&check_script)
-            .arg("--model")
-            .arg(self.get_model_id())
-            .output()
-            .await?;
+        let python_cmd = if self.device_type == DeviceType::Rocm {
+            // Use the ROCm virtual environment Python
+            let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/home/user".to_string());
+            format!("{}/.rocm_pytorch_env/bin/python", home_dir)
+        } else {
+            "python3".to_string()
+        };
+        
+        let output = {
+            let mut cmd = tokio::process::Command::new(&python_cmd);
+            cmd.arg(&check_script)
+                .arg("--model")
+                .arg(self.get_model_id());
+            
+            // Set ROCm environment variables when using ROCm device
+            if self.device_type == DeviceType::Rocm {
+                let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/home/user".to_string());
+                let rocm_site_packages = format!("{}/.rocm_pytorch_env/lib/python3.13/site-packages", home_dir);
+                cmd.env("HSA_OVERRIDE_GFX_VERSION", "11.0.2")
+                    .env("HIP_VISIBLE_DEVICES", "0")
+                    .env("ROCR_VISIBLE_DEVICES", "0")
+                    .env("CUDA_VISIBLE_DEVICES", "0")
+                    .env("PYTHONPATH", &rocm_site_packages);
+            }
+            
+            cmd.output().await?
+        };
         
         if !output.status.success() {
             return Ok(false); // If script fails, assume model is not downloaded
@@ -344,18 +409,40 @@ impl CandleWhisperBackend {
         let preload_script = self.create_preload_script()?;
         
         // Run the preload script
-        let output = tokio::process::Command::new("python3")
-            .arg(&preload_script)
-            .arg("--model")
-            .arg(self.get_model_id())
-            .arg("--device")
-            .arg(match self.device_type {
-                DeviceType::Cpu => "cpu",
-                DeviceType::Cuda => "cuda",
-                DeviceType::Metal => "mps",
-            })
-            .output()
-            .await?;
+        let python_cmd = if self.device_type == DeviceType::Rocm {
+            // Use the ROCm virtual environment Python
+            let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/home/user".to_string());
+            format!("{}/.rocm_pytorch_env/bin/python", home_dir)
+        } else {
+            "python3".to_string()
+        };
+        
+        let output = {
+            let mut cmd = tokio::process::Command::new(&python_cmd);
+            cmd.arg(&preload_script)
+                .arg("--model")
+                .arg(self.get_model_id())
+                .arg("--device")
+                .arg(match self.device_type {
+                    DeviceType::Cpu => "cpu",
+                    DeviceType::Cuda => "cuda",
+                    DeviceType::Metal => "mps",
+                    DeviceType::Rocm => "cuda", // ROCm uses PyTorch's CUDA API
+                });
+            
+            // Set ROCm environment variables when using ROCm device
+            if self.device_type == DeviceType::Rocm {
+                let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/home/user".to_string());
+                let rocm_site_packages = format!("{}/.rocm_pytorch_env/lib/python3.13/site-packages", home_dir);
+                cmd.env("HSA_OVERRIDE_GFX_VERSION", "11.0.2")
+                    .env("HIP_VISIBLE_DEVICES", "0")
+                    .env("ROCR_VISIBLE_DEVICES", "0")
+                    .env("CUDA_VISIBLE_DEVICES", "0")
+                    .env("PYTHONPATH", &rocm_site_packages);
+            }
+            
+            cmd.output().await?
+        };
         
         if !output.status.success() {
             let error_msg = String::from_utf8_lossy(&output.stderr);
@@ -581,16 +668,48 @@ def main():
     args = parser.parse_args()
     
     try:
-        # Set device
-        if args.device == "cuda" and torch.cuda.is_available():
-            device = "cuda"
-            torch_dtype = torch.float16
+        # Set device with ROCm fallback
+        if args.device == "cuda":
+            # Check if CUDA/ROCm is available
+            if torch.cuda.is_available():
+                # Check if this is ROCm (AMD GPU) or NVIDIA CUDA
+                if torch.version.hip is not None:
+                    # ROCm backend detected - try GPU first, fallback to CPU on error
+                    try:
+                        device = "cuda"  # ROCm uses CUDA API
+                        torch_dtype = torch.float16
+                        print(f"Attempting ROCm backend on device: {torch.cuda.get_device_name(0)}", file=sys.stderr)
+                        
+                        # Test GPU compatibility with a simple operation
+                        test_tensor = torch.tensor([1.0], device=device, dtype=torch_dtype)
+                        _ = test_tensor * 2  # Simple operation to test GPU
+                        print("✓ ROCm GPU compatibility test passed", file=sys.stderr)
+                        
+                    except Exception as e:
+                        # ROCm GPU failed, fallback to CPU
+                        device = "cpu"
+                        torch_dtype = torch.float32
+                        print(f"⚠️  ROCm GPU failed ({str(e)[:50]}...), falling back to CPU", file=sys.stderr)
+                        print("This is common with newer AMD GPUs - CPU transcription will still work", file=sys.stderr)
+                else:
+                    # NVIDIA CUDA backend
+                    device = "cuda"
+                    torch_dtype = torch.float16
+                    print(f"Using CUDA backend on device: {torch.cuda.get_device_name(0)}", file=sys.stderr)
+            else:
+                # Try to use CPU but warn about ROCm
+                device = "cpu"
+                torch_dtype = torch.float32
+                print("Warning: CUDA/ROCm not available, falling back to CPU", file=sys.stderr)
+                print("Make sure ROCm is properly installed and PyTorch supports your GPU", file=sys.stderr)
         elif args.device == "mps" and torch.backends.mps.is_available():
             device = "mps"
             torch_dtype = torch.float16
+            print("Using Metal Performance Shaders (MPS) backend", file=sys.stderr)
         else:
             device = "cpu"
             torch_dtype = torch.float32
+            print("Using CPU backend", file=sys.stderr)
         
         # Load model and processor directly (offline mode)
         try:
@@ -684,19 +803,30 @@ impl TranscriptionBackend for CandleWhisperBackend {
         println!("Starting Candle Whisper transcription with model: {:?}", self.model_size);
         
         // Check if Python and required packages are available
-        let python_check = Command::new("python3")
+        let python_cmd = if self.device_type == DeviceType::Rocm {
+            // Use the ROCm virtual environment Python
+            let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/home/user".to_string());
+            format!("{}/.rocm_pytorch_env/bin/python", home_dir)
+        } else {
+            "python3".to_string()
+        };
+        
+        let python_check = Command::new(&python_cmd)
             .args(&["-c", "import torch, transformers, torchaudio; print('Dependencies OK')"])
             .output();
         
         match python_check {
             Ok(output) if output.status.success() => {
-                println!("Python dependencies confirmed");
+                println!("Python dependencies confirmed using: {}", python_cmd);
             }
             _ => {
-                return Err(anyhow!(
+                let error_msg = if self.device_type == DeviceType::Rocm {
+                    "ROCm PyTorch environment not found. Please run setup_rocm.sh to install ROCm dependencies."
+                } else {
                     "Python3 with required packages (torch, transformers, torchaudio) not found. \
                     Please install them with: pip install torch transformers torchaudio"
-                ));
+                };
+                return Err(anyhow!(error_msg));
             }
         }
         
