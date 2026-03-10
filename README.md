@@ -26,13 +26,17 @@ It supports multiple transcription backends (cloud and local), works across Linu
 
 **Supported models**: Tiny, Base, Small, Medium, Large, LargeTurbo, quantized variants (Q5/Q8), Distil-Whisper (HuggingFace), and Moonshine (ultra-fast CPU inference).
 
-### Voice Commands
+### Voice Commands (Legacy / Proof of Concept)
+
+> **Note:** This feature is a proof of concept and is not actively maintained. It may be incomplete or unstable.
 
 - Record voice commands that are analyzed for intent using OpenAI
 - Automatic routing to MCP tools, AI agent actions, or direct LLM responses
 - Fallback to local AI agent when cloud is unavailable
 
-### Meeting Transcription
+### Meeting Transcription (Legacy / Proof of Concept)
+
+> **Note:** This feature is a proof of concept and is not actively maintained. It may be incomplete or unstable.
 
 - Long-form meeting recording with configurable audio chunking
 - AI-powered extraction of action items, decisions, follow-ups, and questions
