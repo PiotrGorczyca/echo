@@ -41,6 +41,7 @@ pub enum ConnectionState {
 #[async_trait::async_trait]
 pub trait McpTransport: std::fmt::Debug {
     async fn send_request(&mut self, request: JsonRpcRequest) -> Result<JsonRpcResponse>;
+    async fn send_notification(&mut self, notification: JsonRpcRequest) -> Result<()>;
     async fn close(&mut self) -> Result<()>;
     fn is_connected(&self) -> bool;
 }
@@ -75,6 +76,54 @@ impl McpClient {
             servers: Arc::new(RwLock::new(HashMap::new())),
             request_timeout: Duration::from_secs(30),
         }
+    }
+
+    /// Clear all existing servers (useful for reinitialization)
+    pub async fn clear_all_servers(&self) -> Result<()> {
+        let mut servers = self.servers.write().await;
+        servers.clear();
+        println!("🧹 Cleared all MCP server connections");
+        Ok(())
+    }
+
+    /// Initialize MCP client with user-defined servers from settings
+    pub async fn initialize_with_user_servers(&self, user_servers: &[crate::ai_agent::integrations::UserMcpServer]) -> Result<()> {
+        println!("🔧 Initializing MCP client with {} user servers", user_servers.len());
+        
+        // Clear existing servers first
+        self.clear_all_servers().await?;
+        
+        for user_server in user_servers {
+            println!("   Adding server: {} (enabled: {}, auto_connect: {})", 
+                      user_server.name, user_server.enabled, user_server.auto_connect);
+            
+            // Add server configuration to MCP client
+            let mcp_config = user_server.to_mcp_config();
+            if let Err(e) = self.add_server(mcp_config).await {
+                println!("❌ Failed to add server {}: {}", user_server.name, e);
+                continue;
+            }
+            
+            // Auto-connect if enabled (changed: connect all enabled servers, not just auto_connect ones)
+            if user_server.enabled {
+                println!("   Connecting to enabled server: {}", user_server.name);
+                if let Err(e) = self.connect_server(&user_server.name).await {
+                    println!("❌ Failed to connect to server {}: {}", user_server.name, e);
+                } else {
+                    println!("✅ Successfully connected to server: {}", user_server.name);
+                }
+            }
+        }
+        
+        // Log current status
+        let connected_servers = self.get_connected_servers().await;
+        println!("🔗 Connected MCP servers: {:?}", connected_servers);
+        
+        let all_tools = self.get_all_tools().await;
+        let total_tools: usize = all_tools.values().map(|tools| tools.len()).sum();
+        println!("🛠️  Total available MCP tools: {}", total_tools);
+        
+        Ok(())
     }
 
     /// Add a new MCP server configuration
@@ -123,6 +172,9 @@ impl McpClient {
 
     /// Initialize connection with handshake
     async fn initialize_connection(&self, connection: &mut ServerConnection) -> Result<()> {
+        println!("🤝 Initializing connection to server: {}", connection.config.name);
+        println!("   Command: {} {:?}", connection.config.command, connection.config.args);
+        
         let init_request = InitializeRequest {
             protocol_version: MCP_VERSION.to_string(),
             capabilities: ClientCapabilities {
@@ -133,7 +185,7 @@ impl McpClient {
                 }),
             },
             client_info: ClientInfo {
-                name: "EchoType AI Agent".to_string(),
+                name: "Echo AI Agent".to_string(),
                 version: "0.1.0".to_string(),
             },
         };
@@ -144,7 +196,7 @@ impl McpClient {
         );
 
         let response = timeout(
-            self.request_timeout,
+            Duration::from_secs(60), // Increased timeout for initialization
             connection.transport.send_request(request),
         ).await??;
 
@@ -157,14 +209,17 @@ impl McpClient {
         )?;
 
         connection.capabilities = Some(init_response.capabilities);
+        println!("   ✅ Server initialization successful");
 
-        // Send initialized notification
-        let initialized_request = JsonRpcRequest::new(
-            "notifications/initialized".to_string(),
-            None,
-        );
+        // Send initialized notification (no response expected)
+        let initialized_notification = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: None, // Notifications have no ID
+            method: "notifications/initialized".to_string(),
+            params: None,
+        };
 
-        connection.transport.send_request(initialized_request).await?;
+        connection.transport.send_notification(initialized_notification).await?;
 
         // Load available tools, resources, and prompts
         self.load_server_capabilities(connection).await?;
@@ -174,19 +229,37 @@ impl McpClient {
 
     /// Load server capabilities (tools, resources, prompts)
     async fn load_server_capabilities(&self, connection: &mut ServerConnection) -> Result<()> {
+        println!("🔍 Loading capabilities for server: {}", connection.config.name);
+        
         // Load tools
         if let Some(capabilities) = &connection.capabilities {
+            println!("   Server capabilities: tools={}, resources={}, prompts={}", 
+                    capabilities.tools.is_some(), 
+                    capabilities.resources.is_some(), 
+                    capabilities.prompts.is_some());
+                    
             if capabilities.tools.is_some() {
+                println!("   Requesting tools list...");
                 let tools_request = JsonRpcRequest::new(
                     "tools/list".to_string(),
                     Some(serde_json::to_value(ListToolsRequest { cursor: None })?),
                 );
 
-                let response = connection.transport.send_request(tools_request).await?;
+                let response = timeout(
+                    Duration::from_secs(60), // Increased timeout for tools request
+                    connection.transport.send_request(tools_request)
+                ).await??;
                 if let Some(result) = response.result {
                     let tools_response: ListToolsResponse = serde_json::from_value(result)?;
                     connection.tools = tools_response.tools;
+                    println!("   ✅ Loaded {} tools from server {}", connection.tools.len(), connection.config.name);
+                } else if let Some(error) = response.error {
+                    println!("   ❌ Tools request failed: {} ({})", error.message, error.code);
+                } else {
+                    println!("   ⚠️ No result or error in tools response");
                 }
+            } else {
+                println!("   ⚠️ Server does not advertise tools capability");
             }
 
             // Load resources
@@ -297,7 +370,11 @@ impl McpClient {
     /// Check if a server is connected
     pub async fn is_server_connected(&self, server_name: &str) -> bool {
         let connections = self.servers.read().await;
-        connections.contains_key(server_name)
+        if let Some(connection) = connections.get(server_name) {
+            matches!(connection.state, ConnectionState::Connected)
+        } else {
+            false
+        }
     }
 
     /// Disconnect from a server
@@ -313,7 +390,10 @@ impl McpClient {
     /// Get list of connected servers
     pub async fn get_connected_servers(&self) -> Vec<String> {
         let connections = self.servers.read().await;
-        connections.keys().cloned().collect()
+        connections.iter()
+            .filter(|(_, connection)| matches!(connection.state, ConnectionState::Connected))
+            .map(|(name, _)| name.clone())
+            .collect()
     }
 
     /// Create transport based on configuration
@@ -348,15 +428,28 @@ impl StdioTransport {
 
         let stdin = child.stdin.take().ok_or_else(|| anyhow!("Failed to get stdin"))?;
         let stdout = child.stdout.take().ok_or_else(|| anyhow!("Failed to get stdout"))?;
+        let stderr = child.stderr.take().ok_or_else(|| anyhow!("Failed to get stderr"))?;
 
         let (tx, rx) = mpsc::channel(100);
         let reader = BufReader::new(stdout);
         let mut lines = reader.lines();
 
+        // Handle stdout
         tokio::spawn(async move {
             while let Ok(Some(line)) = lines.next_line().await {
                 if tx.send(line).await.is_err() {
                     break;
+                }
+            }
+        });
+
+        // Handle stderr (for debugging)
+        let stderr_reader = BufReader::new(stderr);
+        let mut stderr_lines = stderr_reader.lines();
+        tokio::spawn(async move {
+            while let Ok(Some(line)) = stderr_lines.next_line().await {
+                if !line.trim().is_empty() {
+                    println!("🔥 MCP Server stderr: {}", line);
                 }
             }
         });
@@ -377,16 +470,43 @@ impl McpTransport for StdioTransport {
         let receiver = self.stdout_receiver.as_mut().ok_or_else(|| anyhow!("No stdout receiver"))?;
 
         let request_json = serde_json::to_string(&request)?;
+        println!("📤 Sending MCP request: {}", request.method);
+        println!("   Request ID: {:?}", request.id);
+        
         stdin.write_all(request_json.as_bytes()).await?;
         stdin.write_all(b"\n").await?;
         stdin.flush().await?;
+        println!("   ✅ Request sent, waiting for response...");
 
         // Wait for response
-        let response_line = timeout(Duration::from_secs(30), receiver.recv()).await?
+        let response_line = timeout(Duration::from_secs(60), receiver.recv()).await?
             .ok_or_else(|| anyhow!("No response received"))?;
+
+        println!("📥 Received MCP response (length: {} chars)", response_line.len());
+        if response_line.len() < 500 {
+            println!("   Response content: {}", response_line);
+        } else {
+            // Safely truncate respecting UTF-8 character boundaries
+            let truncated = response_line.chars().take(200).collect::<String>();
+            println!("   Response content: {}... (truncated)", truncated);
+        }
 
         let response: JsonRpcResponse = serde_json::from_str(&response_line)?;
         Ok(response)
+    }
+
+    async fn send_notification(&mut self, notification: JsonRpcRequest) -> Result<()> {
+        let stdin = self.stdin.as_mut().ok_or_else(|| anyhow!("No stdin available"))?;
+        
+        let notification_json = serde_json::to_string(&notification)?;
+        println!("📢 Sending MCP notification: {}", notification.method);
+        
+        stdin.write_all(notification_json.as_bytes()).await?;
+        stdin.write_all(b"\n").await?;
+        stdin.flush().await?;
+        println!("   ✅ Notification sent (no response expected)");
+        
+        Ok(())
     }
 
     async fn close(&mut self) -> Result<()> {
@@ -416,6 +536,11 @@ impl WebSocketTransport {
 #[async_trait::async_trait]
 impl McpTransport for WebSocketTransport {
     async fn send_request(&mut self, _request: JsonRpcRequest) -> Result<JsonRpcResponse> {
+        // WebSocket implementation would go here
+        Err(anyhow!("WebSocket transport not yet implemented"))
+    }
+
+    async fn send_notification(&mut self, _notification: JsonRpcRequest) -> Result<()> {
         // WebSocket implementation would go here
         Err(anyhow!("WebSocket transport not yet implemented"))
     }
@@ -451,6 +576,15 @@ impl McpTransport for HttpTransport {
 
         let json_response: JsonRpcResponse = response.json().await?;
         Ok(json_response)
+    }
+
+    async fn send_notification(&mut self, notification: JsonRpcRequest) -> Result<()> {
+        let _response = self.client
+            .post(&self.url)
+            .json(&notification)
+            .send()
+            .await?;
+        Ok(())
     }
 
     async fn close(&mut self) -> Result<()> {

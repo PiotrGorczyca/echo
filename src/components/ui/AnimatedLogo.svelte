@@ -51,7 +51,7 @@
     <div class="inner-glow"></div>
     
     <!-- The actual logo -->
-    <img src={logoSrc} alt="EchoType" class="logo-image" />
+    <img src={logoSrc} alt="Echo" class="logo-image" />
     
     <!-- Recording indicator dots -->
     {#if isRecording}

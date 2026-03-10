@@ -214,7 +214,7 @@ impl McpServerRegistry {
             "development".to_string(),
             "data".to_string(),
             "ai".to_string(),
-            "echotype".to_string(),
+            "echo".to_string(),
         ]
     }
 

@@ -4,64 +4,47 @@
   import SettingsNavigation from "../components/Settings/SettingsNavigation.svelte";
   import WelcomePage from "../components/Settings/pages/WelcomePage.svelte";
   import CoreSettingsPage from "../components/Settings/pages/CoreSettingsPage.svelte";
-  import AdvancedFeaturesPage from "../components/Settings/pages/AdvancedFeaturesPage.svelte";
-  import VoiceCommandsPage from "../components/Settings/pages/VoiceCommandsPage.svelte";
+  import HistoryPage from "../components/Settings/pages/HistoryPage.svelte";
+  import TasksPage from "../components/Settings/pages/TasksPage.svelte";
+  import "../styles/dark-theme.css";
 
   // Current page state
-  let currentPage: 'welcome' | 'core' | 'advanced' | 'commands' = 'welcome';
+  let currentPage: 'welcome' | 'core' | 'history' | 'tasks' = $state('welcome');
   let isAnimating = false;
-  let hasUnsavedChanges = false;
+  let hasUnsavedChanges = $state(false);
 
   // Handle page navigation
   function handlePageChange(event: CustomEvent<string>) {
     if (isAnimating) return;
-    
+
+    const newPage = event.detail as 'welcome' | 'core' | 'history' | 'tasks';
+    // Prevent navigation to hidden pages if triggered programmatically
+    if (['meetings', 'commands'].includes(newPage)) return;
+
     isAnimating = true;
-    currentPage = event.detail as 'welcome' | 'core' | 'advanced' | 'commands';
-    
+    currentPage = newPage;
+
     setTimeout(() => {
       isAnimating = false;
-    }, 200); // Match page transition duration
+    }, 200);
   }
 
-  // Handle minimize window (previously close)
-  async function minimizeWindow() {
+  // Handle hide window
+  async function hideWindow() {
     try {
       await invoke("hide_main_window");
     } catch (err) {
-      console.error("Failed to minimize window:", err);
-    }
-  }
-
-  // Handle escape key to minimize
-  function handleKeydown(event: KeyboardEvent) {
-    if (event.key === 'Escape') {
-      minimizeWindow();
+      console.error("Failed to hide window:", err);
     }
   }
 
   onMount(() => {
-    // Position the window properly when the app loads
-    (async () => {
-      try {
-        await invoke("position_main_window");
-      } catch (err) {
-        console.error("Failed to position window:", err);
-      }
-    })();
-    
-    // Listen for keyboard events
-    document.addEventListener('keydown', handleKeydown);
-    
-    // Listen for voice command navigation from double Shift tap
-    let unlistenNavigation: (() => void) | null = null;
-    
+    // Allow backend hotkeys to navigate the Settings window.
     (async () => {
       try {
         const { listen } = await import("@tauri-apps/api/event");
-        unlistenNavigation = await listen("navigate-to-voice-commands", () => {
-          console.log("Double Shift detected - navigating to voice commands");
-          currentPage = 'commands';
+        await listen("navigate-to-tasks", () => {
+          currentPage = 'tasks';
         });
       } catch (err) {
         console.error("Failed to set up navigation listener:", err);
@@ -69,44 +52,39 @@
     })();
 
     return () => {
-      document.removeEventListener('keydown', handleKeydown);
-      if (unlistenNavigation) {
-        unlistenNavigation();
-      }
+      // cleanup
     };
   });
 </script>
 
 <svelte:head>
-  <title>Echo Settings</title>
+  <title>Echo</title>
 </svelte:head>
 
 <!-- Main Settings App -->
-<div class="settings-app">
+<div class="app-layout">
   <!-- Settings Navigation -->
-  <SettingsNavigation 
-    {currentPage} 
+  <SettingsNavigation
+    {currentPage}
     {hasUnsavedChanges}
     on:pageChange={handlePageChange}
-    on:close={minimizeWindow}
+    on:close={hideWindow}
   />
 
   <!-- Page Content -->
-  <div class="settings-content">
+  <div class="page-container">
     {#if currentPage === 'welcome'}
-      <WelcomePage 
+      <WelcomePage
         on:navigateToCore={() => handlePageChange(new CustomEvent('pageChange', { detail: 'core' }))}
-        on:navigateToAdvanced={() => handlePageChange(new CustomEvent('pageChange', { detail: 'advanced' }))}
-        on:navigateToCommands={() => handlePageChange(new CustomEvent('pageChange', { detail: 'commands' }))}
       />
     {:else if currentPage === 'core'}
-      <CoreSettingsPage 
+      <CoreSettingsPage
         bind:hasUnsavedChanges={hasUnsavedChanges}
       />
-    {:else if currentPage === 'advanced'}
-      <AdvancedFeaturesPage />
-    {:else if currentPage === 'commands'}
-      <VoiceCommandsPage />
+    {:else if currentPage === 'history'}
+      <HistoryPage />
+    {:else if currentPage === 'tasks'}
+      <TasksPage />
     {/if}
   </div>
 </div>
@@ -115,107 +93,50 @@
   :global(body) {
     margin: 0;
     padding: 0;
-    background-color: var(--bg-primary, #1a1a1a);
-    color: var(--text-primary, #ffffff);
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-    overflow: hidden;
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    overflow: hidden; /* Prevent scrollbars on body */
+    width: 100%;
   }
 
   :global(html) {
-    background-color: var(--bg-primary, #1a1a1a);
+    background-color: var(--bg-primary);
+    overflow: hidden; /* Ensure html also clips overflow */
+    width: 100%;
   }
 
-  .settings-app {
-    width: 100vw;
+  .app-layout {
+    width: 100%;
     height: 100vh;
     display: flex;
     flex-direction: column;
-    background-color: var(--bg-primary, #1a1a1a);
+    background-color: var(--bg-primary);
+    overflow: hidden; /* Ensure app layout doesn't overflow */
   }
 
-  .settings-content {
+  .page-container {
     flex: 1;
     overflow-y: auto;
     overflow-x: hidden;
+    position: relative;
+    width: 100%;
   }
 
   /* Custom scrollbar */
-  .settings-content::-webkit-scrollbar {
-    width: 8px;
+  .page-container::-webkit-scrollbar {
+    width: 6px;
   }
 
-  .settings-content::-webkit-scrollbar-track {
-    background: var(--bg-secondary, #2d2d2d);
+  .page-container::-webkit-scrollbar-track {
+    background: transparent;
   }
 
-  .settings-content::-webkit-scrollbar-thumb {
-    background: var(--border-primary, #404040);
-    border-radius: 4px;
+  .page-container::-webkit-scrollbar-thumb {
+    background: var(--border-primary);
+    border-radius: 3px;
   }
 
-  .settings-content::-webkit-scrollbar-thumb:hover {
-    background: var(--accent-primary, #4A90E2);
-  }
-
-  /* Ensure all global button and input styles are available */
-  :global(.btn) {
-    padding: 8px 16px;
-    border: 1px solid var(--border-primary, #404040);
-    border-radius: 6px;
-    background-color: var(--bg-secondary, #2d2d2d);
-    color: var(--text-primary, #ffffff);
-    font-size: 0.9rem;
-    transition: all var(--duration-fast, 150ms) var(--ease-out, ease-out);
-    cursor: pointer;
-  }
-
-  :global(.btn:hover) {
-    background-color: var(--hover-bg, #404040);
-    border-color: var(--border-accent, #4A90E2);
-  }
-
-  :global(.btn-primary) {
-    background-color: var(--accent-primary, #4A90E2);
-    border-color: var(--accent-primary, #4A90E2);
-    color: white;
-  }
-
-  :global(.btn-primary:hover) {
-    background-color: var(--accent-tertiary, #3A7BD5);
-    border-color: var(--accent-tertiary, #3A7BD5);
-  }
-
-  :global(.btn-secondary) {
-    background-color: transparent;
-    border-color: var(--accent-primary, #4A90E2);
-    color: var(--accent-primary, #4A90E2);
-  }
-
-  :global(.btn-secondary:hover) {
-    background-color: var(--accent-primary, #4A90E2);
-    color: white;
-  }
-
-  :global(.card) {
-    background-color: var(--bg-secondary, #2d2d2d);
-    border: 1px solid var(--border-primary, #404040);
-    border-radius: 8px;
-    box-shadow: var(--shadow-sm, 0 2px 4px rgba(0, 0, 0, 0.3));
-  }
-
-  :global(.status-success) {
-    color: var(--success, #4CAF50);
-  }
-
-  :global(.status-warning) {
-    color: var(--warning, #FF9800);
-  }
-
-  :global(.status-error) {
-    color: var(--error, #F44336);
-  }
-
-  :global(.status-info) {
-    color: var(--info, #2196F3);
+  .page-container::-webkit-scrollbar-thumb:hover {
+    background: var(--border-highlight);
   }
 </style>

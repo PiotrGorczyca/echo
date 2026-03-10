@@ -1,5 +1,5 @@
 {
-  "name": "echotype",
+  "name": "echo",
   "version": "0.1.0",
   "description": "",
   "type": "module",
@@ -13,8 +13,11 @@
   },
   "license": "MIT",
   "dependencies": {
+    "@taazkareem/clickup-mcp-server": "^0.8.5",
     "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-opener": "^2"
+    "@tauri-apps/plugin-dialog": "^2.4.2",
+    "@tauri-apps/plugin-opener": "^2",
+    "marked": "^17.0.1"
   },
   "devDependencies": {
     "@sveltejs/adapter-static": "^3.0.6",

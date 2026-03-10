@@ -31,11 +31,10 @@
     voice_energy_threshold: number | null;
     auto_calibrate_threshold: boolean;
     wake_word_model_size: WhisperModelSize;
-    user_mcp_servers: any[];
   }
 
-  type TranscriptionMode = "OpenAI" | "LocalWhisper" | "CandleWhisper";
-  type WhisperModelSize = "Tiny" | "Base" | "Small" | "Medium" | "Large" | "LargeTurbo" | "DistilMedium" | "DistilLargeV2" | "DistilLargeV3";
+  type TranscriptionMode = "OpenAI" | "LocalWhisper" | "CandleWhisper" | "FasterWhisper";
+  type WhisperModelSize = "Tiny" | "Base" | "Small" | "Medium" | "Large" | "LargeTurbo" | "SmallQ5" | "MediumQ5" | "LargeV3Q5" | "LargeTurboQ5" | "LargeTurboQ8" | "DistilSmall" | "DistilMedium" | "DistilLargeV2" | "DistilLargeV3" | "MoonshineTiny" | "MoonshineBase";
   type DeviceType = "Cpu" | "Cuda" | "Metal" | "Rocm";
 
   // State
@@ -44,8 +43,8 @@
     api_key: "",
     selected_device_id: "",
     auto_paste: true,
-    transcription_mode: "CandleWhisper" as TranscriptionMode,
-    whisper_model_size: "DistilMedium" as WhisperModelSize,
+    transcription_mode: "FasterWhisper" as TranscriptionMode,
+    whisper_model_size: "LargeTurboQ5" as WhisperModelSize,
     whisper_model_path: null,
     device_type: "Rocm" as DeviceType,
     enable_voice_activation: false,
@@ -55,8 +54,7 @@
     wake_word_timeout_ms: 5000,
     voice_energy_threshold: null,
     auto_calibrate_threshold: true,
-    wake_word_model_size: "Base" as WhisperModelSize,
-    user_mcp_servers: []
+    wake_word_model_size: "Base" as WhisperModelSize
   });
 
   let recordingState: RecordingState = $state({ is_recording: false, device_name: "" });
@@ -69,9 +67,16 @@
   let testAudioPath: string = $state("");
   let testRecordingTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // Backend dependency state
+  let depsInstalled: boolean | null = $state(null);
+  let depsChecking: boolean = $state(false);
+  let depsInstalling: boolean = $state(false);
+  let depsInstallLog: string = $state("");
+
   onMount(async () => {
     await loadAudioDevices();
     await loadSettings();
+    await checkBackendDeps();
     await updateRecordingState();
     setInterval(updateRecordingState, 1000);
   });
@@ -94,7 +99,7 @@
       console.error("Failed to load settings:", err);
     }
   }
-
+  
   async function updateRecordingState() {
     try {
       recordingState = await invoke<RecordingState>("get_recording_state");
@@ -127,7 +132,7 @@
       isSaving = false;
     }
   }
-
+  
   async function testRecording() {
     try {
       if (isTestRecording) {
@@ -254,17 +259,20 @@
           status = "Ready - Double-tap Left Alt to record";
         }, 2000);
         
+        // Clean up the test recording file after playback attempt
+        setTimeout(() => {
+          cleanupTestRecording();
+        }, 3000); // Give a bit more time for playback to complete
+        
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (playError: any) {
         console.error("❌ Native audio playback failed:", playError);
         error = `Failed to play audio: ${playError}`;
         status = "Playback failed";
+        cleanupTestRecording();
       }
       
-      // Clean up the test recording file after playback attempt
-      setTimeout(() => {
-        cleanupTestRecording();
-      }, 3000); // Give a bit more time for playback to complete
-      
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       console.error("💥 Unexpected error in playTestRecording:", err);
       error = `Unexpected error: ${err.message}`;
@@ -285,6 +293,7 @@
         status = "Ready - Double-tap Left Alt to record";
       }, 2000);
       
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       console.error("❌ Failed to stop audio playback:", err);
       error = `Failed to stop playback: ${err}`;
@@ -293,6 +302,44 @@
 
   function markAsChanged() {
     hasUnsavedChanges = true;
+  }
+
+  async function checkBackendDeps() {
+    const mode = settings.transcription_mode;
+    if (mode === "OpenAI" || mode === "LocalWhisper") {
+      depsInstalled = true;
+      return;
+    }
+    depsChecking = true;
+    depsInstallLog = "";
+    try {
+      depsInstalled = await invoke<boolean>("check_backend_deps", { backend: mode });
+    } catch (err) {
+      console.error("Failed to check deps:", err);
+      depsInstalled = false;
+    } finally {
+      depsChecking = false;
+    }
+  }
+
+  async function installBackendDeps() {
+    const mode = settings.transcription_mode;
+    depsInstalling = true;
+    depsInstallLog = "";
+    try {
+      depsInstallLog = await invoke<string>("install_backend_deps", { backend: mode });
+      depsInstalled = true;
+    } catch (err) {
+      depsInstallLog = `Installation failed: ${err}`;
+      depsInstalled = false;
+    } finally {
+      depsInstalling = false;
+    }
+  }
+
+  function onModeChanged() {
+    markAsChanged();
+    checkBackendDeps();
   }
 
   async function cleanupTestRecording() {
@@ -331,16 +378,20 @@
       <h3>Transcription Mode</h3>
       <div class="radio-group">
         <label class="radio-label">
-          <input type="radio" name="transcription_mode" value="OpenAI" bind:group={settings.transcription_mode} onchange={markAsChanged} />
-          <span class="radio-text">OpenAI API (Cloud)</span>
+          <input type="radio" name="transcription_mode" value="FasterWhisper" bind:group={settings.transcription_mode} onchange={onModeChanged} />
+          <span class="radio-text">Faster Whisper (Recommended - fastest local)</span>
         </label>
         <label class="radio-label">
-          <input type="radio" name="transcription_mode" value="LocalWhisper" bind:group={settings.transcription_mode} onchange={markAsChanged} />
-          <span class="radio-text">Whisper.cpp (Local)</span>
+          <input type="radio" name="transcription_mode" value="LocalWhisper" bind:group={settings.transcription_mode} onchange={onModeChanged} />
+          <span class="radio-text">Whisper.cpp (Native, no Python)</span>
         </label>
         <label class="radio-label">
-          <input type="radio" name="transcription_mode" value="CandleWhisper" bind:group={settings.transcription_mode} onchange={markAsChanged} />
-          <span class="radio-text">🔥 Candle Whisper (Fast Local)</span>
+          <input type="radio" name="transcription_mode" value="CandleWhisper" bind:group={settings.transcription_mode} onchange={onModeChanged} />
+          <span class="radio-text">HuggingFace Whisper (Moonshine, Distil models)</span>
+        </label>
+        <label class="radio-label">
+          <input type="radio" name="transcription_mode" value="OpenAI" bind:group={settings.transcription_mode} onchange={onModeChanged} />
+          <span class="radio-text">OpenAI API (cloud, requires key)</span>
         </label>
       </div>
     </section>
@@ -364,28 +415,89 @@
       </section>
     {/if}
 
+    <!-- Backend Dependencies -->
+    {#if settings.transcription_mode === "FasterWhisper" || settings.transcription_mode === "CandleWhisper"}
+      <section class="settings-section card">
+        <h3>Dependencies</h3>
+        {#if depsChecking}
+          <div class="deps-status deps-checking">Checking dependencies...</div>
+        {:else if depsInstalled === true}
+          <div class="deps-status deps-ok">Dependencies installed</div>
+        {:else if depsInstalled === false}
+          <div class="deps-status deps-missing">
+            <span>Dependencies not installed</span>
+            <button onclick={installBackendDeps} class="btn btn-primary btn-sm" disabled={depsInstalling}>
+              {depsInstalling ? "Installing..." : "Install Dependencies"}
+            </button>
+          </div>
+        {/if}
+        {#if depsInstallLog}
+          <pre class="deps-log">{depsInstallLog}</pre>
+        {/if}
+      </section>
+    {/if}
+
     <!-- Model Configuration -->
-    {#if settings.transcription_mode === "LocalWhisper" || settings.transcription_mode === "CandleWhisper"}
+    {#if settings.transcription_mode === "LocalWhisper" || settings.transcription_mode === "CandleWhisper" || settings.transcription_mode === "FasterWhisper"}
       <section class="settings-section card">
         <h3>Model Configuration</h3>
         <div class="model-settings">
           <div class="setting-group">
-            <label for="model-size">Model Size</label>
-            <select 
+            <label for="model-size">Model</label>
+            <select
               id="model-size"
-              bind:value={settings.whisper_model_size} 
+              bind:value={settings.whisper_model_size}
               class="device-select"
               onchange={markAsChanged}
             >
-              <option value="Tiny">Tiny (39 MB)</option>
-              <option value="Base">Base (74 MB)</option>
-              <option value="Small">Small (244 MB)</option>
-              <option value="Medium">Medium (769 MB)</option>
-              <option value="Large">Large (1550 MB)</option>
-              <option value="LargeTurbo">Large Turbo (809 MB)</option>
-              <option value="DistilMedium">Distil Medium (394 MB)</option>
-              <option value="DistilLargeV2">Distil Large V2 (756 MB)</option>
-              <option value="DistilLargeV3">Distil Large V3 (756 MB)</option>
+              {#if settings.transcription_mode === "FasterWhisper"}
+                <optgroup label="Recommended">
+                  <option value="LargeTurbo">Turbo - Best speed/accuracy balance</option>
+                  <option value="Large">Large V3 - Best accuracy</option>
+                  <option value="DistilLargeV3">Distil Large V3 - Fast (English)</option>
+                </optgroup>
+                <optgroup label="Smaller Models">
+                  <option value="Small">Small</option>
+                  <option value="Medium">Medium</option>
+                  <option value="Tiny">Tiny - Fastest, lower accuracy</option>
+                  <option value="Base">Base</option>
+                </optgroup>
+                <optgroup label="Distil-Whisper (English)">
+                  <option value="DistilSmall">Distil Small - Tiny footprint</option>
+                  <option value="DistilMedium">Distil Medium</option>
+                  <option value="DistilLargeV2">Distil Large V2</option>
+                </optgroup>
+              {:else}
+                <optgroup label="Recommended - Fast CPU">
+                  <option value="LargeTurboQ5">Turbo Q5 (574 MB) - Best balance, fast CPU</option>
+                  <option value="LargeTurboQ8">Turbo Q8 (874 MB) - Higher quality quantized</option>
+                  <option value="LargeTurbo">Turbo Full (1.6 GB) - Turbo unquantized</option>
+                </optgroup>
+                {#if settings.transcription_mode === "CandleWhisper"}
+                  <optgroup label="Moonshine - Ultra Fast CPU (English)">
+                    <option value="MoonshineTiny">Moonshine Tiny (27M params) - Fastest</option>
+                    <option value="MoonshineBase">Moonshine Base (61M params) - Fast + accurate</option>
+                  </optgroup>
+                  <optgroup label="Distil-Whisper - Fast (English)">
+                    <option value="DistilSmall">Distil Small (166M) - Tiny footprint</option>
+                    <option value="DistilMedium">Distil Medium (394M) - Good balance</option>
+                    <option value="DistilLargeV3">Distil Large V3 (756M) - Best distilled</option>
+                    <option value="DistilLargeV2">Distil Large V2 (756M)</option>
+                  </optgroup>
+                {/if}
+                <optgroup label="Quantized GGML - Smaller & Faster">
+                  <option value="SmallQ5">Small Q5 (190 MB)</option>
+                  <option value="MediumQ5">Medium Q5 (539 MB)</option>
+                  <option value="LargeV3Q5">Large V3 Q5 (1.08 GB) - Best accuracy quantized</option>
+                </optgroup>
+                <optgroup label="Standard Whisper">
+                  <option value="Tiny">Tiny (39 MB)</option>
+                  <option value="Base">Base (74 MB)</option>
+                  <option value="Small">Small (244 MB)</option>
+                  <option value="Medium">Medium (769 MB)</option>
+                  <option value="Large">Large V3 (1.55 GB) - Best accuracy</option>
+                </optgroup>
+              {/if}
             </select>
           </div>
           
@@ -454,7 +566,8 @@
       </div>
     </section>
 
-    <!-- Voice Activation -->
+    <!-- Voice Activation (Hidden) -->
+    <!-- 
     <section class="settings-section card">
       <h3>Voice Activation</h3>
       <div class="voice-activation-settings">
@@ -540,6 +653,7 @@
         {/if}
       </div>
     </section>
+    -->
 
     <!-- Options -->
     <section class="settings-section card">
@@ -800,65 +914,7 @@
   }
 
   /* Voice Activation Styles */
-  .voice-activation-settings {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .voice-settings-expanded {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    padding: 16px;
-    background: var(--bg-tertiary, #3a3a3a);
-    border-radius: 6px;
-    border: 1px solid var(--border-primary, #404040);
-  }
-
-  .slider-container {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
-  .slider {
-    flex: 1;
-    height: 6px;
-    border-radius: 3px;
-    background: var(--border-primary, #404040);
-    outline: none;
-    appearance: none;
-  }
-
-  .slider::-webkit-slider-thumb {
-    appearance: none;
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    background: var(--accent-primary, #4A90E2);
-    cursor: pointer;
-    border: 2px solid white;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-  }
-
-  .slider::-moz-range-thumb {
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    background: var(--accent-primary, #4A90E2);
-    cursor: pointer;
-    border: 2px solid white;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-  }
-
-  .slider-value {
-    font-size: 0.9rem;
-    font-weight: 500;
-    color: var(--text-primary, #ffffff);
-    min-width: 32px;
-    text-align: center;
-  }
+  /* .voice-activation-settings, .voice-settings-expanded, .slider-container, .slider, .slider-value  styles are hidden as feature is hidden */
 
   .actions-section {
     padding-top: 20px;
@@ -868,6 +924,28 @@
     display: flex;
     gap: 12px;
     justify-content: center;
+  }
+  
+  .account-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  
+  .btn-sm {
+    padding: 6px 12px;
+    font-size: 0.85rem;
+  }
+  
+  .login-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 12px;
+    padding: 12px;
+    background: var(--bg-tertiary, #3a3a3a);
+    border-radius: 6px;
+    border: 1px solid var(--border-primary, #404040);
   }
 
   .btn-danger {
@@ -923,4 +1001,44 @@
     flex-wrap: wrap;
     margin-top: 12px;
   }
-</style> 
+
+  .deps-status {
+    padding: 10px 14px;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .deps-checking {
+    background: var(--bg-tertiary, #3a3a3a);
+    color: var(--text-secondary, #b0b0b0);
+  }
+
+  .deps-ok {
+    background: rgba(76, 175, 80, 0.1);
+    color: #4caf50;
+    border: 1px solid rgba(76, 175, 80, 0.3);
+  }
+
+  .deps-missing {
+    background: rgba(255, 152, 0, 0.1);
+    color: #ff9800;
+    border: 1px solid rgba(255, 152, 0, 0.3);
+  }
+
+  .deps-log {
+    margin-top: 10px;
+    padding: 10px;
+    background: var(--bg-tertiary, #1e1e1e);
+    border-radius: 6px;
+    font-size: 0.8rem;
+    color: var(--text-secondary, #b0b0b0);
+    max-height: 150px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+</style>

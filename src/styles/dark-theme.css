@@ -1,160 +1,148 @@
-/* Dark Theme with Calming Blue Accents */
+/* Modern Deep Dark Theme - State of the Art UI */
 :root {
-  /* Primary Colors */
-  --bg-primary: #1a1a1a;           /* Main background */
-  --bg-secondary: #2d2d2d;         /* Card/section backgrounds */
-  --bg-tertiary: #3a3a3a;          /* Input backgrounds */
-
-  /* Accent Colors (Calming Blue) */
-  --accent-primary: #4A90E2;       /* Primary blue */
-  --accent-secondary: #5BA3F5;     /* Lighter blue */
-  --accent-tertiary: #3A7BD5;      /* Darker blue */
+  /* Base Colors */
+  --bg-primary: #09090b;           /* Zinc 950 - Deepest background */
+  --bg-secondary: #18181b;         /* Zinc 900 - Card/Section background */
+  --bg-tertiary: #27272a;          /* Zinc 800 - Input/Hover background */
+  
+  /* Accent Colors (Electric Blue) */
+  --accent-primary: #3b82f6;       /* Blue 500 */
+  --accent-secondary: #60a5fa;     /* Blue 400 */
+  --accent-tertiary: #2563eb;      /* Blue 600 */
+  --accent-glow: rgba(59, 130, 246, 0.5);
 
   /* Text Colors */
-  --text-primary: #ffffff;         /* Primary text */
-  --text-secondary: #b0b0b0;       /* Secondary text */
-  --text-muted: #808080;           /* Muted text */
+  --text-primary: #fafafa;         /* Zinc 50 */
+  --text-secondary: #a1a1aa;       /* Zinc 400 */
+  --text-muted: #52525b;           /* Zinc 600 */
 
   /* Status Colors */
-  --success: #4CAF50;              /* Success states */
-  --warning: #FF9800;              /* Warning states */
-  --error: #F44336;                /* Error states */
-  --info: #2196F3;                 /* Info states */
+  --success: #22c55e;              /* Green 500 */
+  --warning: #f59e0b;              /* Amber 500 */
+  --error: #ef4444;                /* Red 500 */
+  --info: #3b82f6;                 /* Blue 500 */
 
-  /* Interactive Elements */
-  --border-primary: #404040;       /* Primary borders */
-  --border-accent: #4A90E2;        /* Accent borders */
-  --hover-bg: #404040;             /* Hover backgrounds */
+  /* Borders & Separators */
+  --border-primary: #27272a;       /* Zinc 800 */
+  --border-highlight: #3f3f46;     /* Zinc 700 */
 
-  /* Shadows and Effects */
-  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
-  --shadow-glow: 0 0 0 2px rgba(74, 144, 226, 0.3);
+  /* Shadows & Effects */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-glow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+  
+  /* Glassmorphism */
+  --glass-bg: rgba(24, 24, 27, 0.7);
+  --glass-border: rgba(255, 255, 255, 0.05);
+  --backdrop-blur: blur(12px);
 
-  /* Animation Durations */
+  /* Animation */
   --duration-fast: 150ms;
   --duration-normal: 300ms;
-  --duration-slow: 500ms;
-
-  /* Easing Functions */
-  --ease-out: cubic-bezier(0.25, 0.46, 0.45, 0.94);
-  --ease-in: cubic-bezier(0.55, 0.055, 0.675, 0.19);
-  --ease-in-out: cubic-bezier(0.645, 0.045, 0.355, 1);
+  --ease-out: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Dark theme base styles */
-.dark-theme {
+/* Global Resets & Base Styles */
+body {
   background-color: var(--bg-primary);
   color: var(--text-primary);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* Interactive element base styles */
-.interactive {
-  transition: all var(--duration-fast) var(--ease-out);
-  cursor: pointer;
-}
-
-.interactive:hover {
-  background-color: var(--hover-bg);
-}
-
-.interactive:focus {
-  outline: none;
-  box-shadow: var(--shadow-glow);
-}
-
-/* Button styles */
-.btn {
-  padding: 8px 16px;
-  border: 1px solid var(--border-primary);
-  border-radius: 6px;
-  background-color: var(--bg-secondary);
+/* Typography */
+h1, h2, h3, h4, h5, h6 {
   color: var(--text-primary);
-  font-size: 0.9rem;
-  transition: all var(--duration-fast) var(--ease-out);
-  cursor: pointer;
+  letter-spacing: -0.025em;
 }
 
-.btn:hover {
-  background-color: var(--hover-bg);
-  border-color: var(--border-accent);
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  font-weight: 500;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  transition: all var(--duration-fast) var(--ease-out);
+  cursor: pointer;
+  border: 1px solid transparent;
+  gap: 0.5rem;
 }
 
 .btn-primary {
   background-color: var(--accent-primary);
-  border-color: var(--accent-primary);
   color: white;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
 }
 
 .btn-primary:hover {
   background-color: var(--accent-tertiary);
-  border-color: var(--accent-tertiary);
 }
 
 .btn-secondary {
-  background-color: transparent;
-  border-color: var(--accent-primary);
-  color: var(--accent-primary);
+  background-color: var(--bg-secondary);
+  border-color: var(--border-primary);
+  color: var(--text-primary);
 }
 
 .btn-secondary:hover {
-  background-color: var(--accent-primary);
-  color: white;
-}
-
-.btn-accent {
-  background-color: var(--success);
-  border-color: var(--success);
-  color: white;
-}
-
-.btn-accent:hover {
-  background-color: #45a049;
-  border-color: #45a049;
-}
-
-/* Input styles */
-.input {
-  padding: 10px 12px;
-  border: 1px solid var(--border-primary);
-  border-radius: 6px;
   background-color: var(--bg-tertiary);
-  color: var(--text-primary);
-  font-size: 0.9rem;
-  transition: all var(--duration-fast) var(--ease-out);
+  border-color: var(--border-highlight);
 }
 
-.input:focus {
+/* Inputs and Selects */
+.input, select {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: 0.5rem;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  transition: all var(--duration-fast) var(--ease-out);
+  appearance: none; /* Remove default browser styling */
+}
+
+select {
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a1a1aa' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  background-size: 1rem;
+  padding-right: 2.5rem;
+}
+
+.input:focus, select:focus {
+  outline: none;
   border-color: var(--accent-primary);
   box-shadow: var(--shadow-glow);
+  background-color: var(--bg-secondary);
 }
 
 .input::placeholder {
   color: var(--text-muted);
 }
 
-/* Card styles */
+/* Fix for options in some browsers to ensure they are dark */
+option {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+/* Cards */
 .card {
   background-color: var(--bg-secondary);
   border: 1px solid var(--border-primary);
-  border-radius: 8px;
+  border-radius: 0.75rem;
   box-shadow: var(--shadow-sm);
 }
 
-/* Status indicator styles */
-.status-success {
-  color: var(--success);
+/* Utilities */
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: var(--backdrop-blur);
+  border: 1px solid var(--glass-border);
 }
-
-.status-warning {
-  color: var(--warning);
-}
-
-.status-error {
-  color: var(--error);
-}
-
-.status-info {
-  color: var(--info);
-} 

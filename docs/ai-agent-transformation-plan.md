@@ -710,7 +710,7 @@ CREATE TABLE generated_content (
 ```toml
 # config/app.toml
 [app]
-name = "EchoType AI Agent"
+name = "Echo AI Agent"
 version = "2.0.0"
 debug = false
 

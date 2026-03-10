@@ -1,7 +1,6 @@
-use crate::transcription::{TranscriptionBackend, WhisperModelSize, DeviceType};
+use crate::transcription::{TranscriptionBackend, WhisperModelSize, DeviceType, python_env};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use std::process::Command;
 use std::path::PathBuf;
 use tempfile::NamedTempFile;
 use std::io::Write;
@@ -14,7 +13,7 @@ use std::time::{Instant};
 use crate::{DownloadProgress, DownloadEvent};
 
 // Global cache for Python processes with models preloaded
-static MODEL_CACHE: Lazy<Arc<Mutex<HashMap<String, Arc<Mutex<std::process::Child>>>>>> = 
+static MODEL_CACHE: Lazy<Arc<Mutex<HashMap<String, Arc<Mutex<std::process::Child>>>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 pub struct CandleWhisperBackend {
@@ -37,25 +36,19 @@ impl CandleWhisperBackend {
     }
     
     fn get_model_id_for_size(model_size: &WhisperModelSize) -> &str {
-        match model_size {
-            WhisperModelSize::Tiny => "openai/whisper-tiny",
-            WhisperModelSize::Base => "openai/whisper-base",
-            WhisperModelSize::Small => "openai/whisper-small",
-            WhisperModelSize::Medium => "openai/whisper-medium",
-            WhisperModelSize::Large => "openai/whisper-large-v3",
-            WhisperModelSize::LargeTurbo => "openai/whisper-large-v3-turbo",
-            WhisperModelSize::DistilMedium => "distil-whisper/distil-medium.en", // English-only model
-            WhisperModelSize::DistilLargeV2 => "distil-whisper/distil-large-v2", // Multilingual
-            WhisperModelSize::DistilLargeV3 => "distil-whisper/distil-large-v3", // Multilingual
-        }
+        model_size.hf_model_id()
     }
-    
+
     fn get_model_id(&self) -> &str {
         Self::get_model_id_for_size(&self.model_size)
     }
-    
+
     fn is_english_only(&self) -> bool {
-        matches!(self.model_size, WhisperModelSize::DistilMedium)
+        self.model_size.is_english_only()
+    }
+
+    fn is_moonshine(&self) -> bool {
+        self.model_size.is_moonshine_model()
     }
     
     fn preprocess_audio(&self, audio_file_path: &str) -> Result<PathBuf> {
@@ -96,15 +89,8 @@ impl CandleWhisperBackend {
         // Create a temporary Python script for inference
         let python_script = self.create_python_script()?;
         
-        // Run the Python script
-        let python_cmd = if self.device_type == DeviceType::Rocm {
-            // Use the ROCm virtual environment Python
-            let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/home/user".to_string());
-            format!("{}/.rocm_pytorch_env/bin/python", home_dir)
-        } else {
-            "python3".to_string()
-        };
-        
+        let python_cmd = self.get_python_cmd();
+
         let mut command = tokio::process::Command::new(&python_cmd);
         command
             .arg(&python_script)
@@ -115,21 +101,13 @@ impl CandleWhisperBackend {
                 DeviceType::Cpu => "cpu",
                 DeviceType::Cuda => "cuda",
                 DeviceType::Metal => "mps",
-                DeviceType::Rocm => "cuda", // ROCm uses PyTorch's CUDA API
+                DeviceType::Rocm => "cuda",
             })
             .arg("--audio")
             .arg(audio_path);
 
-        // Set ROCm environment variables when using ROCm device
         if self.device_type == DeviceType::Rocm {
-            let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/home/user".to_string());
-            let rocm_site_packages = format!("{}/.rocm_pytorch_env/lib/python3.13/site-packages", home_dir);
-            command
-                .env("HSA_OVERRIDE_GFX_VERSION", "11.0.2")
-                .env("HIP_VISIBLE_DEVICES", "0")
-                .env("ROCR_VISIBLE_DEVICES", "0")
-                .env("CUDA_VISIBLE_DEVICES", "0")
-                .env("PYTHONPATH", &rocm_site_packages);
+            self.set_rocm_env(&mut command);
         }
 
         let output = command.output().await?;
@@ -179,15 +157,9 @@ impl CandleWhisperBackend {
         
         // Run the download script with streaming output for progress tracking
         println!("Running download command...");
-        
-        let python_cmd = if self.device_type == DeviceType::Rocm {
-            // Use the ROCm virtual environment Python
-            let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/home/user".to_string());
-            format!("{}/.rocm_pytorch_env/bin/python", home_dir)
-        } else {
-            "python3".to_string()
-        };
-        
+
+        let python_cmd = self.get_python_cmd();
+
         let mut child = {
             let mut cmd = tokio::process::Command::new(&python_cmd);
             cmd.arg(&download_script)
@@ -195,18 +167,11 @@ impl CandleWhisperBackend {
                 .arg(self.get_model_id())
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped());
-            
-            // Set ROCm environment variables when using ROCm device
+
             if self.device_type == DeviceType::Rocm {
-                let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/home/user".to_string());
-                let rocm_site_packages = format!("{}/.rocm_pytorch_env/lib/python3.13/site-packages", home_dir);
-                cmd.env("HSA_OVERRIDE_GFX_VERSION", "11.0.2")
-                    .env("HIP_VISIBLE_DEVICES", "0")
-                    .env("ROCR_VISIBLE_DEVICES", "0")
-                    .env("CUDA_VISIBLE_DEVICES", "0")
-                    .env("PYTHONPATH", &rocm_site_packages);
+                self.set_rocm_env(&mut cmd);
             }
-            
+
             cmd.spawn()?
         };
         
@@ -356,32 +321,18 @@ impl CandleWhisperBackend {
         // Create a Python script that checks if the model is cached
         let check_script = self.create_check_script()?;
         
-        // Run the check script
-        let python_cmd = if self.device_type == DeviceType::Rocm {
-            // Use the ROCm virtual environment Python
-            let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/home/user".to_string());
-            format!("{}/.rocm_pytorch_env/bin/python", home_dir)
-        } else {
-            "python3".to_string()
-        };
-        
+        let python_cmd = self.get_python_cmd();
+
         let output = {
             let mut cmd = tokio::process::Command::new(&python_cmd);
             cmd.arg(&check_script)
                 .arg("--model")
                 .arg(self.get_model_id());
-            
-            // Set ROCm environment variables when using ROCm device
+
             if self.device_type == DeviceType::Rocm {
-                let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/home/user".to_string());
-                let rocm_site_packages = format!("{}/.rocm_pytorch_env/lib/python3.13/site-packages", home_dir);
-                cmd.env("HSA_OVERRIDE_GFX_VERSION", "11.0.2")
-                    .env("HIP_VISIBLE_DEVICES", "0")
-                    .env("ROCR_VISIBLE_DEVICES", "0")
-                    .env("CUDA_VISIBLE_DEVICES", "0")
-                    .env("PYTHONPATH", &rocm_site_packages);
+                self.set_rocm_env(&mut cmd);
             }
-            
+
             cmd.output().await?
         };
         
@@ -408,15 +359,8 @@ impl CandleWhisperBackend {
         // Create a Python script that preloads the model
         let preload_script = self.create_preload_script()?;
         
-        // Run the preload script
-        let python_cmd = if self.device_type == DeviceType::Rocm {
-            // Use the ROCm virtual environment Python
-            let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/home/user".to_string());
-            format!("{}/.rocm_pytorch_env/bin/python", home_dir)
-        } else {
-            "python3".to_string()
-        };
-        
+        let python_cmd = self.get_python_cmd();
+
         let output = {
             let mut cmd = tokio::process::Command::new(&python_cmd);
             cmd.arg(&preload_script)
@@ -427,20 +371,13 @@ impl CandleWhisperBackend {
                     DeviceType::Cpu => "cpu",
                     DeviceType::Cuda => "cuda",
                     DeviceType::Metal => "mps",
-                    DeviceType::Rocm => "cuda", // ROCm uses PyTorch's CUDA API
+                    DeviceType::Rocm => "cuda",
                 });
-            
-            // Set ROCm environment variables when using ROCm device
+
             if self.device_type == DeviceType::Rocm {
-                let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/home/user".to_string());
-                let rocm_site_packages = format!("{}/.rocm_pytorch_env/lib/python3.13/site-packages", home_dir);
-                cmd.env("HSA_OVERRIDE_GFX_VERSION", "11.0.2")
-                    .env("HIP_VISIBLE_DEVICES", "0")
-                    .env("ROCR_VISIBLE_DEVICES", "0")
-                    .env("CUDA_VISIBLE_DEVICES", "0")
-                    .env("PYTHONPATH", &rocm_site_packages);
+                self.set_rocm_env(&mut cmd);
             }
-            
+
             cmd.output().await?
         };
         
@@ -463,59 +400,65 @@ import argparse
 import sys
 import os
 import torch
-from transformers import AutoProcessor, AutoModelForSpeechSeq2Seq
 import traceback
+
+def get_model_class(model_id):
+    """Return the appropriate model class for the given model ID."""
+    if "moonshine" in model_id.lower():
+        from transformers import MoonshineForConditionalGeneration
+        return MoonshineForConditionalGeneration
+    else:
+        from transformers import AutoModelForSpeechSeq2Seq
+        return AutoModelForSpeechSeq2Seq
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", required=True, help="Model ID")
     args = parser.parse_args()
-    
+
     try:
+        from transformers import AutoProcessor
+        ModelClass = get_model_class(args.model)
+
         print(f"Starting download for model: {args.model}")
         print("This may take several minutes depending on your internet connection...")
-        
+
         # Temporarily disable offline mode for downloading
         if "HF_HUB_OFFLINE" in os.environ:
             del os.environ["HF_HUB_OFFLINE"]
         if "TRANSFORMERS_OFFLINE" in os.environ:
             del os.environ["TRANSFORMERS_OFFLINE"]
-        
-        # Download model components directly (same as whisper.cpp approach)
+
         print("Downloading processor...")
         processor = AutoProcessor.from_pretrained(args.model)
-        print("✓ Processor downloaded")
-        
+        print("Processor downloaded")
+
         print("Downloading model...")
-        model = AutoModelForSpeechSeq2Seq.from_pretrained(
+        model = ModelClass.from_pretrained(
             args.model,
             torch_dtype=torch.float32,
             low_cpu_mem_usage=True,
-            use_safetensors=True
         )
-        print("✓ Model downloaded")
-        
-        # Test that it works in offline mode
+        print("Model downloaded")
+
+        # Verify offline mode works
         print("Verifying local installation...")
-        # Enable offline mode for verification
         os.environ["HF_HUB_OFFLINE"] = "1"
         os.environ["TRANSFORMERS_OFFLINE"] = "1"
-        
+
         test_processor = AutoProcessor.from_pretrained(args.model, local_files_only=True)
-        test_model = AutoModelForSpeechSeq2Seq.from_pretrained(
+        test_model = ModelClass.from_pretrained(
             args.model,
             torch_dtype=torch.float32,
             low_cpu_mem_usage=True,
-            use_safetensors=True,
             local_files_only=True
         )
-        
-        print("✓ Local installation verified")
+
+        print("Local installation verified")
         print(f"Model {args.model} downloaded and ready for offline use!")
-        
+
     except Exception as e:
         print(f"Error downloading model: {e}", file=sys.stderr)
-        print("Full error details:", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         sys.exit(1)
 
@@ -540,9 +483,7 @@ import argparse
 import sys
 import os
 import torch
-from transformers import AutoProcessor, AutoModelForSpeechSeq2Seq
 
-# Force offline mode to prevent any network requests
 os.environ["HF_HUB_OFFLINE"] = "1"
 os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
@@ -551,34 +492,34 @@ def main():
     parser.add_argument("--model", required=True, help="Model ID")
     parser.add_argument("--device", default="cpu", help="Device to use")
     args = parser.parse_args()
-    
+
     try:
+        from transformers import AutoProcessor
         print(f"Preloading model: {args.model}")
-        
-        # Set device
+
         if args.device == "cuda" and torch.cuda.is_available():
-            device = "cuda"
-            torch_dtype = torch.float16
+            device, torch_dtype = "cuda", torch.float16
         elif args.device == "mps" and torch.backends.mps.is_available():
-            device = "mps"
-            torch_dtype = torch.float16
+            device, torch_dtype = "mps", torch.float16
         else:
-            device = "cpu"
-            torch_dtype = torch.float32
-        
-        # Load model and processor (offline mode)
+            device, torch_dtype = "cpu", torch.float32
+
         processor = AutoProcessor.from_pretrained(args.model, local_files_only=True)
-        model = AutoModelForSpeechSeq2Seq.from_pretrained(
-            args.model,
-            torch_dtype=torch_dtype,
-            low_cpu_mem_usage=True,
-            use_safetensors=True,
-            local_files_only=True
-        ).to(device)
-        
-        print(f"✓ Model {args.model} preloaded successfully on {device}")
-        print("Model ready for fast transcription!")
-        
+
+        if "moonshine" in args.model.lower():
+            from transformers import MoonshineForConditionalGeneration
+            model = MoonshineForConditionalGeneration.from_pretrained(
+                args.model, local_files_only=True
+            ).to(device).to(torch_dtype)
+        else:
+            from transformers import AutoModelForSpeechSeq2Seq
+            model = AutoModelForSpeechSeq2Seq.from_pretrained(
+                args.model, torch_dtype=torch_dtype, low_cpu_mem_usage=True,
+                use_safetensors=True, local_files_only=True
+            ).to(device)
+
+        print(f"Model {args.model} preloaded successfully on {device}")
+
     except Exception as e:
         print(f"Error preloading model: {e}", file=sys.stderr)
         sys.exit(1)
@@ -603,10 +544,8 @@ if __name__ == "__main__":
 import argparse
 import sys
 import os
-from transformers import AutoProcessor, AutoModelForSpeechSeq2Seq
 import torch
 
-# Force offline mode to prevent any network requests
 os.environ["HF_HUB_OFFLINE"] = "1"
 os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
@@ -614,22 +553,24 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", required=True, help="Model ID")
     args = parser.parse_args()
-    
+
     try:
-        # Try to load the model and processor in offline mode
-        # This is the same method used in inference, so it should be accurate
+        from transformers import AutoProcessor
         processor = AutoProcessor.from_pretrained(args.model, local_files_only=True)
-        model = AutoModelForSpeechSeq2Seq.from_pretrained(
-            args.model,
-            torch_dtype=torch.float32,
-            low_cpu_mem_usage=True,
-            use_safetensors=True,
-            local_files_only=True
-        )
+
+        if "moonshine" in args.model.lower():
+            from transformers import MoonshineForConditionalGeneration
+            model = MoonshineForConditionalGeneration.from_pretrained(
+                args.model, torch_dtype=torch.float32, low_cpu_mem_usage=True, local_files_only=True
+            )
+        else:
+            from transformers import AutoModelForSpeechSeq2Seq
+            model = AutoModelForSpeechSeq2Seq.from_pretrained(
+                args.model, torch_dtype=torch.float32, low_cpu_mem_usage=True,
+                use_safetensors=True, local_files_only=True
+            )
         print("True")
-        
-    except Exception as e:
-        # If any error occurs, model is not available locally
+    except Exception:
         print("False")
 
 if __name__ == "__main__":
@@ -653,12 +594,117 @@ import argparse
 import os
 import torch
 import torchaudio
-from transformers import AutoProcessor, AutoModelForSpeechSeq2Seq, pipeline
 import sys
 
 # Force offline mode to prevent any network requests
 os.environ["HF_HUB_OFFLINE"] = "1"
 os.environ["TRANSFORMERS_OFFLINE"] = "1"
+
+def detect_device(requested_device):
+    """Detect and return the best available device."""
+    if requested_device == "cuda":
+        if torch.cuda.is_available():
+            if torch.version.hip is not None:
+                try:
+                    device = "cuda"
+                    torch_dtype = torch.float16
+                    print(f"Attempting ROCm backend on device: {torch.cuda.get_device_name(0)}", file=sys.stderr)
+                    test_tensor = torch.tensor([1.0], device=device, dtype=torch_dtype)
+                    _ = test_tensor * 2
+                    print("ROCm GPU compatibility test passed", file=sys.stderr)
+                    return device, torch_dtype
+                except Exception as e:
+                    print(f"ROCm GPU failed ({str(e)[:50]}...), falling back to CPU", file=sys.stderr)
+                    return "cpu", torch.float32
+            else:
+                print(f"Using CUDA backend on device: {torch.cuda.get_device_name(0)}", file=sys.stderr)
+                return "cuda", torch.float16
+        else:
+            print("Warning: CUDA/ROCm not available, falling back to CPU", file=sys.stderr)
+            return "cpu", torch.float32
+    elif requested_device == "mps" and torch.backends.mps.is_available():
+        print("Using Metal Performance Shaders (MPS) backend", file=sys.stderr)
+        return "mps", torch.float16
+    else:
+        print("Using CPU backend", file=sys.stderr)
+        return "cpu", torch.float32
+
+def transcribe_moonshine(args, device, torch_dtype):
+    """Transcribe using Moonshine model."""
+    from transformers import AutoProcessor, MoonshineForConditionalGeneration
+
+    processor = AutoProcessor.from_pretrained(args.model, local_files_only=True)
+    model = MoonshineForConditionalGeneration.from_pretrained(
+        args.model, local_files_only=True
+    ).to(device).to(torch_dtype)
+
+    audio, sample_rate = torchaudio.load(args.audio)
+    target_rate = processor.feature_extractor.sampling_rate
+    if sample_rate != target_rate:
+        audio = torchaudio.transforms.Resample(sample_rate, target_rate)(audio)
+    if audio.shape[0] > 1:
+        audio = torch.mean(audio, dim=0, keepdim=True)
+
+    inputs = processor(audio.squeeze().numpy(), return_tensors="pt", sampling_rate=target_rate)
+    inputs = {k: v.to(device, torch_dtype) if v.dtype.is_floating_point else v.to(device) for k, v in inputs.items()}
+
+    # Limit max length to avoid hallucinations (Moonshine-specific)
+    token_limit_factor = 6.5 / target_rate
+    seq_lens = inputs["attention_mask"].sum(dim=-1)
+    max_length = int((seq_lens * token_limit_factor).max().item())
+
+    with torch.no_grad():
+        generated_ids = model.generate(**inputs, max_length=max(max_length, 1))
+    return processor.decode(generated_ids[0], skip_special_tokens=True)
+
+def transcribe_whisper(args, device, torch_dtype):
+    """Transcribe using Whisper or Distil-Whisper model."""
+    from transformers import AutoProcessor, AutoModelForSpeechSeq2Seq, pipeline
+
+    try:
+        processor = AutoProcessor.from_pretrained(args.model, local_files_only=True)
+        model = AutoModelForSpeechSeq2Seq.from_pretrained(
+            args.model,
+            torch_dtype=torch_dtype,
+            low_cpu_mem_usage=True,
+            use_safetensors=True,
+            local_files_only=True
+        ).to(device)
+    except Exception as e:
+        if "local_files_only" in str(e) or "not found" in str(e).lower():
+            raise Exception(f"Model {args.model} not found locally. Please download it first using the Download Model button.")
+        raise
+
+    audio, sample_rate = torchaudio.load(args.audio)
+    if sample_rate != 16000:
+        audio = torchaudio.transforms.Resample(sample_rate, 16000)(audio)
+    if audio.shape[0] > 1:
+        audio = torch.mean(audio, dim=0, keepdim=True)
+
+    audio_np = audio.squeeze().numpy()
+
+    # English-only models use direct generation
+    if any(tag in args.model for tag in [".en", "moonshine"]):
+        inputs = processor(audio_np, sampling_rate=16000, return_tensors="pt")
+        input_features = inputs.input_features.to(device, dtype=torch_dtype)
+        with torch.no_grad():
+            predicted_ids = model.generate(input_features)
+        return processor.batch_decode(predicted_ids, skip_special_tokens=True)[0]
+    else:
+        # Multilingual models use pipeline for language detection
+        pipe = pipeline(
+            "automatic-speech-recognition",
+            model=model,
+            tokenizer=processor.tokenizer,
+            feature_extractor=processor.feature_extractor,
+            torch_dtype=torch_dtype,
+            device=device,
+            return_timestamps=False,
+            chunk_length_s=30,
+            generate_kwargs={"language": None, "task": "transcribe"}
+        )
+        result = pipe(audio_np, generate_kwargs={"language": None})
+        return result["text"]
 
 def main():
     parser = argparse.ArgumentParser()
@@ -666,117 +712,17 @@ def main():
     parser.add_argument("--device", default="cpu", help="Device to use")
     parser.add_argument("--audio", required=True, help="Audio file path")
     args = parser.parse_args()
-    
+
     try:
-        # Set device with ROCm fallback
-        if args.device == "cuda":
-            # Check if CUDA/ROCm is available
-            if torch.cuda.is_available():
-                # Check if this is ROCm (AMD GPU) or NVIDIA CUDA
-                if torch.version.hip is not None:
-                    # ROCm backend detected - try GPU first, fallback to CPU on error
-                    try:
-                        device = "cuda"  # ROCm uses CUDA API
-                        torch_dtype = torch.float16
-                        print(f"Attempting ROCm backend on device: {torch.cuda.get_device_name(0)}", file=sys.stderr)
-                        
-                        # Test GPU compatibility with a simple operation
-                        test_tensor = torch.tensor([1.0], device=device, dtype=torch_dtype)
-                        _ = test_tensor * 2  # Simple operation to test GPU
-                        print("✓ ROCm GPU compatibility test passed", file=sys.stderr)
-                        
-                    except Exception as e:
-                        # ROCm GPU failed, fallback to CPU
-                        device = "cpu"
-                        torch_dtype = torch.float32
-                        print(f"⚠️  ROCm GPU failed ({str(e)[:50]}...), falling back to CPU", file=sys.stderr)
-                        print("This is common with newer AMD GPUs - CPU transcription will still work", file=sys.stderr)
-                else:
-                    # NVIDIA CUDA backend
-                    device = "cuda"
-                    torch_dtype = torch.float16
-                    print(f"Using CUDA backend on device: {torch.cuda.get_device_name(0)}", file=sys.stderr)
-            else:
-                # Try to use CPU but warn about ROCm
-                device = "cpu"
-                torch_dtype = torch.float32
-                print("Warning: CUDA/ROCm not available, falling back to CPU", file=sys.stderr)
-                print("Make sure ROCm is properly installed and PyTorch supports your GPU", file=sys.stderr)
-        elif args.device == "mps" and torch.backends.mps.is_available():
-            device = "mps"
-            torch_dtype = torch.float16
-            print("Using Metal Performance Shaders (MPS) backend", file=sys.stderr)
+        device, torch_dtype = detect_device(args.device)
+
+        if "moonshine" in args.model.lower():
+            transcription = transcribe_moonshine(args, device, torch_dtype)
         else:
-            device = "cpu"
-            torch_dtype = torch.float32
-            print("Using CPU backend", file=sys.stderr)
-        
-        # Load model and processor directly (offline mode)
-        try:
-            processor = AutoProcessor.from_pretrained(args.model, local_files_only=True)
-            model = AutoModelForSpeechSeq2Seq.from_pretrained(
-                args.model,
-                torch_dtype=torch_dtype,
-                low_cpu_mem_usage=True,
-                use_safetensors=True,
-                local_files_only=True
-            ).to(device)
-            
-            # Model loaded successfully
-            
-        except Exception as e:
-            if "local_files_only" in str(e) or "not found" in str(e).lower():
-                raise Exception(f"Model {args.model} not found locally. Please download it first using the Download Model button.")
-            else:
-                raise e
-        
-        # Load and preprocess audio
-        audio, sample_rate = torchaudio.load(args.audio)
-        
-        # Resample to 16kHz if needed
-        if sample_rate != 16000:
-            resampler = torchaudio.transforms.Resample(sample_rate, 16000)
-            audio = resampler(audio)
-        
-        # Convert to mono if stereo
-        if audio.shape[0] > 1:
-            audio = torch.mean(audio, dim=0, keepdim=True)
-        
-        # Prepare inputs
-        inputs = processor(audio.squeeze().numpy(), sampling_rate=16000, return_tensors="pt")
-        input_features = inputs.input_features.to(device, dtype=torch_dtype)
-        
-        # Generate transcription with multilingual support
-        if "medium.en" in args.model:
-            # English-only model - use direct generation
-            with torch.no_grad():
-                predicted_ids = model.generate(input_features)
-            transcription = processor.batch_decode(predicted_ids, skip_special_tokens=True)[0]
-        else:
-            # Multilingual model - use pipeline for better language detection
-            pipe = pipeline(
-                "automatic-speech-recognition",
-                model=model,
-                tokenizer=processor.tokenizer,
-                feature_extractor=processor.feature_extractor,
-                torch_dtype=torch_dtype,
-                device=device,
-                return_timestamps=False,
-                chunk_length_s=30,
-                generate_kwargs={
-                    "language": None,  # Auto-detect language
-                    "task": "transcribe"
-                }
-            )
-            
-            # Load audio for pipeline (it expects numpy array)
-            audio_np = audio.squeeze().numpy()
-            
-            result = pipe(audio_np, generate_kwargs={"language": None})
-            transcription = result["text"]
-        
+            transcription = transcribe_whisper(args, device, torch_dtype)
+
         print(transcription)
-        
+
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
@@ -795,48 +741,49 @@ if __name__ == "__main__":
         
         Ok(path)
     }
+
+    fn get_python_cmd(&self) -> String {
+        if self.device_type == DeviceType::Rocm {
+            let home = std::env::var("HOME").unwrap_or_else(|_| "/home/user".to_string());
+            format!("{}/.rocm_pytorch_env/bin/python", home)
+        } else {
+            python_env::venv_python().unwrap_or_else(|_| "python3".to_string())
+        }
+    }
+
+    fn set_rocm_env(&self, cmd: &mut tokio::process::Command) {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/home/user".to_string());
+        let rocm_site_packages = format!("{}/.rocm_pytorch_env/lib/python3.13/site-packages", home);
+        cmd.env("HSA_OVERRIDE_GFX_VERSION", "11.0.2")
+            .env("HIP_VISIBLE_DEVICES", "0")
+            .env("ROCR_VISIBLE_DEVICES", "0")
+            .env("CUDA_VISIBLE_DEVICES", "0")
+            .env("PYTHONPATH", &rocm_site_packages);
+    }
 }
 
 #[async_trait]
 impl TranscriptionBackend for CandleWhisperBackend {
     async fn transcribe(&self, audio_file_path: &str) -> Result<String> {
-        println!("Starting Candle Whisper transcription with model: {:?}", self.model_size);
-        
-        // Check if Python and required packages are available
-        let python_cmd = if self.device_type == DeviceType::Rocm {
-            // Use the ROCm virtual environment Python
-            let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/home/user".to_string());
-            format!("{}/.rocm_pytorch_env/bin/python", home_dir)
-        } else {
-            "python3".to_string()
-        };
-        
-        let python_check = Command::new(&python_cmd)
-            .args(&["-c", "import torch, transformers, torchaudio; print('Dependencies OK')"])
-            .output();
-        
-        match python_check {
-            Ok(output) if output.status.success() => {
-                println!("Python dependencies confirmed using: {}", python_cmd);
-            }
-            _ => {
-                let error_msg = if self.device_type == DeviceType::Rocm {
-                    "ROCm PyTorch environment not found. Please run setup_rocm.sh to install ROCm dependencies."
-                } else {
-                    "Python3 with required packages (torch, transformers, torchaudio) not found. \
-                    Please install them with: pip install torch transformers torchaudio"
-                };
-                return Err(anyhow!(error_msg));
-            }
+        println!("Starting HuggingFace Whisper transcription with model: {:?}", self.model_size);
+
+        // Verify deps are present (should have been installed via Settings)
+        let packages = python_env::required_packages("CandleWhisper");
+        let pkg_refs: Vec<&str> = packages.iter().map(|s| *s).collect();
+        if !python_env::check_packages(&pkg_refs) {
+            return Err(anyhow!(
+                "HuggingFace Whisper dependencies are not installed. \
+                 Please go to Settings and install dependencies first."
+            ));
         }
-        
+
         // Preprocess audio
         let audio_path = self.preprocess_audio(audio_file_path)?;
-        
+
         // Run inference using Python script
         let result = self.run_python_inference(&audio_path).await?;
-        
-        println!("Candle Whisper transcription completed successfully");
+
+        println!("HuggingFace Whisper transcription completed successfully");
         Ok(result)
     }
 } 

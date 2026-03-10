@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "EchoType",
+  "productName": "Echo",
   "version": "0.1.0",
-  "identifier": "com.echotype.app",
+  "identifier": "com.echo.app",
   "build": {
     "beforeDevCommand": "bun run dev",
     "devUrl": "http://localhost:1420",
@@ -13,24 +13,26 @@
     "windows": [
       {
         "label": "main",
-        "title": "EchoType Settings",
-        "width": 500,
+        "title": "Echo",
+        "width": 1400,
+        "height": 900,
+        "minWidth": 900,
+        "minHeight": 600,
         "fullscreen": false,
-        "visible": false,
-        "skipTaskbar": true,
+        "visible": true,
+        "skipTaskbar": false,
         "minimizable": true,
-        "maximizable": false,
+        "maximizable": true,
         "closable": true,
         "resizable": true,
-        "center": false
+        "center": true,
+        "decorations": false
       },
       {
         "label": "overlay",
-        "title": "EchoType Status",
-        "width": 400,
-        "height": 120,
-        "x": 100,
-        "y": 100,
+        "title": "Echo",
+        "width": 800,
+        "height": 480,
         "visible": false,
         "skipTaskbar": true,
         "minimizable": false,
@@ -41,7 +43,8 @@
         "decorations": false,
         "transparent": true,
         "url": "/overlay",
-        "focus": false
+        "focus": false,
+        "acceptFirstMouse": true
       }
     ],
     "security": {

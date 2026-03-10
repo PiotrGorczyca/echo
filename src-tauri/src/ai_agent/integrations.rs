@@ -31,6 +31,20 @@ pub struct UserMcpServer {
     pub auto_connect: bool,
 }
 
+impl UserMcpServer {
+    /// Convert UserMcpServer to McpServerConfig for use with MCP client
+    pub fn to_mcp_config(&self) -> McpServerConfig {
+        McpServerConfig {
+            name: self.name.clone(),
+            command: self.config.command.clone(),
+            args: self.config.args.clone(),
+            env: self.config.env.clone(),
+            transport: self.config.transport.clone(),
+            enabled: self.enabled,
+        }
+    }
+}
+
 /// Voice command mapping for MCP servers
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VoiceCommand {

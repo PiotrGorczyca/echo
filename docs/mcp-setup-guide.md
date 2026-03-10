@@ -1,6 +1,6 @@
 # MCP Server Setup Guide
 
-This guide shows you how to add and configure any MCP (Model Context Protocol) server in EchoType, giving your AI assistant access to external tools and services.
+This guide shows you how to add and configure any MCP (Model Context Protocol) server in Echo, giving your AI assistant access to external tools and services.
 
 ## What are MCP Servers?
 
@@ -31,7 +31,7 @@ MCP servers are external programs that provide tools and capabilities to your AI
    bun add -g @taazkareem/clickup-mcp-server
    ```
 
-2. **In EchoType Settings:**
+2. **In Echo Settings:**
    - **Server Name**: `my-clickup` (unique identifier)
    - **Display Name**: `My ClickUp`
    - **Description**: `Task management for my workspace`
@@ -50,7 +50,7 @@ MCP servers are external programs that provide tools and capabilities to your AI
 
 ### 2. Add ClickUp MCP Server
 **Option A: One-Click Install**
-1. In EchoType, click **Add Server**
+1. In Echo, click **Add Server**
 2. Type `@taazkareem/clickup-mcp-server` and click **Install**
 3. Enter your API token in the `CLICKUP_API_TOKEN` field
 4. Click **Add Server**
@@ -59,7 +59,7 @@ MCP servers are external programs that provide tools and capabilities to your AI
 ```bash
 bun add -g @taazkareem/clickup-mcp-server
 ```
-Then configure manually in EchoType settings.
+Then configure manually in Echo settings.
 
 ### 3. Test Your Integration
 - **Enable** the server
@@ -115,7 +115,7 @@ Search for packages with keywords:
 4. **Check server logs** in console
 
 ### No Tools Available
-1. **Restart EchoType** after adding server
+1. **Restart Echo** after adding server
 2. **Check server is enabled** and connected
 3. **Verify API credentials** work
 4. **Review server documentation** for setup requirements
@@ -155,4 +155,4 @@ Once you have MCP servers configured:
 3. **Customize voice commands** for your workflow
 4. **Add more servers** as needed
 
-Need help? Check the EchoType documentation or community forums! 
+Need help? Check the Echo documentation or community forums! 

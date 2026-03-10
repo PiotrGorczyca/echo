@@ -584,7 +584,7 @@ impl Default for UserPreferences {
             timezone: "UTC".to_string(),
             preferred_response_style: ResponseStyle::Conversational,
             voice_settings: VoiceSettings {
-                wake_words: vec!["hey echotype".to_string()],
+                wake_words: vec!["hey echo".to_string()],
                 sensitivity: 0.5,
                 auto_transcribe: true,
                 preferred_voice_speed: 1.0,

@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document outlines the complete redesign of the EchoType settings interface, transforming it from a traditional centered layout to a modern right-side drawer system with a dark theme and calming blue accents.
+This document outlines the complete redesign of the Echo settings interface, transforming it from a traditional centered layout to a modern right-side drawer system with a dark theme and calming blue accents.
 
 ## Current State Analysis
 
@@ -142,8 +142,8 @@ This document outlines the complete redesign of the EchoType settings interface,
 ### Welcome Page
 
 #### Header Section
-- **App Icon**: Large EchoType logo
-- **Welcome Message**: "Welcome to EchoType AI Agent"
+- **App Icon**: Large Echo logo
+- **Welcome Message**: "Welcome to Echo AI Agent"
 - **Tagline**: "Your intelligent voice-to-text assistant"
 
 #### Status Overview
@@ -447,7 +447,7 @@ src/
 
 ## Conclusion
 
-This redesign transforms the EchoType settings interface from a traditional form-based layout to a modern, user-friendly drawer system. The new design emphasizes:
+This redesign transforms the Echo settings interface from a traditional form-based layout to a modern, user-friendly drawer system. The new design emphasizes:
 
 1. **Improved User Experience**: Logical organization and progressive disclosure
 2. **Modern Aesthetics**: Dark theme with calming blue accents

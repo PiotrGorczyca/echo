@@ -1,12 +1,12 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
 
-  export let currentPage: 'welcome' | 'core' | 'advanced' | 'commands' = 'welcome';
+  export let currentPage: 'welcome' | 'core' | 'commands' | 'meetings' | 'history' | 'tasks' = 'welcome';
   export let hasUnsavedChanges = false;
 
   const dispatch = createEventDispatcher();
 
-  function handlePageChange(page: 'welcome' | 'core' | 'advanced' | 'commands') {
+  function handlePageChange(page: 'welcome' | 'core' | 'commands' | 'meetings' | 'history' | 'tasks') {
     if (page !== currentPage) {
       dispatch('pageChange', page);
     }
@@ -15,217 +15,168 @@
   function handleClose() {
     dispatch('close');
   }
-
-  // Page titles for display
-  const pageTitle = {
-    welcome: 'Welcome',
-    core: 'Core Settings', 
-    advanced: 'Advanced Features',
-    commands: 'Voice Commands'
-  };
 </script>
 
-<nav class="settings-navigation">
-  <!-- Header with title and close button -->
-  <div class="nav-header">
-    <div class="nav-title">
-      <button class="back-btn" on:click={() => handlePageChange('welcome')} aria-label="Back to welcome">
-        ←
+<nav class="settings-nav">
+  <div class="nav-content">
+    <div class="nav-items">
+      <button 
+        class="nav-item {currentPage === 'welcome' ? 'active' : ''}"
+        onclick={() => handlePageChange('welcome')}
+        aria-label="Home"
+        title="Home"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        <span class="nav-label">Home</span>
       </button>
-      <h1 id="settings-title">{pageTitle[currentPage]}</h1>
+      
+      <button 
+        class="nav-item {currentPage === 'core' ? 'active' : ''}"
+        onclick={() => handlePageChange('core')}
+        aria-label="Settings"
+        title="Settings"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+        <span class="nav-label">Settings</span>
+        {#if hasUnsavedChanges && currentPage === 'core'}
+          <span class="status-dot"></span>
+        {/if}
+      </button>
+      
+      <button
+        class="nav-item {currentPage === 'history' ? 'active' : ''}"
+        onclick={() => handlePageChange('history')}
+        aria-label="History"
+        title="History"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <span class="nav-label">History</span>
+      </button>
+
+      <button
+        class="nav-item {currentPage === 'tasks' ? 'active' : ''}"
+        onclick={() => handlePageChange('tasks')}
+        aria-label="Tasks"
+        title="Tasks"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        <span class="nav-label">Tasks</span>
+      </button>
     </div>
-    <button class="close-btn" on:click={handleClose} aria-label="Close settings">
-      ×
-    </button>
-  </div>
-
-  <!-- Page navigation tabs -->
-  <div class="nav-tabs">
-    <button 
-      class="nav-tab {currentPage === 'welcome' ? 'active' : ''}"
-      on:click={() => handlePageChange('welcome')}
-      aria-pressed={currentPage === 'welcome'}
-    >
-      <span class="tab-indicator"></span>
-      Welcome
-    </button>
     
-    <button 
-      class="nav-tab {currentPage === 'core' ? 'active' : ''}"
-      on:click={() => handlePageChange('core')}
-      aria-pressed={currentPage === 'core'}
-    >
-      <span class="tab-indicator"></span>
-      Core Settings
-      {#if hasUnsavedChanges && currentPage === 'core'}
-        <span class="unsaved-dot" aria-label="Unsaved changes"></span>
-      {/if}
-    </button>
-    
-    <button 
-      class="nav-tab {currentPage === 'advanced' ? 'active' : ''}"
-      on:click={() => handlePageChange('advanced')}
-      aria-pressed={currentPage === 'advanced'}
-    >
-      <span class="tab-indicator"></span>
-      Advanced Features
-      {#if hasUnsavedChanges && currentPage === 'advanced'}
-        <span class="unsaved-dot" aria-label="Unsaved changes"></span>
-      {/if}
-    </button>
-
-    <button 
-      class="nav-tab {currentPage === 'commands' ? 'active' : ''}"
-      on:click={() => handlePageChange('commands')}
-      aria-pressed={currentPage === 'commands'}
-    >
-      <span class="tab-indicator"></span>
-      Voice Commands
+    <button class="close-btn" onclick={handleClose} aria-label="Close">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
     </button>
   </div>
 </nav>
 
 <style>
-  .settings-navigation {
-    background-color: var(--bg-secondary);
+  .settings-nav {
+    background: var(--bg-secondary);
     border-bottom: 1px solid var(--border-primary);
-    padding: 0;
+    padding: 0.5rem 1rem;
+    position: sticky;
+    top: 0;
+    z-index: 50;
   }
 
-  .nav-header {
+  .nav-content {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 16px 20px;
-    border-bottom: 1px solid var(--border-primary);
+    max-width: 100%;
+    margin: 0 auto;
   }
 
-  .nav-title {
+  .nav-items {
+    display: flex;
+    gap: 0.5rem;
+    overflow-x: auto;
+    /* Hide scrollbar but allow scrolling if needed */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .nav-items::-webkit-scrollbar {
+    display: none;
+  }
+
+  .nav-item {
     display: flex;
     align-items: center;
-    gap: 12px;
-  }
-
-  .back-btn {
-    background: none;
-    border: none;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 0.5rem;
     color: var(--text-secondary);
-    font-size: 1.2rem;
+    font-size: 0.875rem;
+    font-weight: 500;
     cursor: pointer;
-    padding: 4px 8px;
-    border-radius: 4px;
     transition: all var(--duration-fast) var(--ease-out);
+    white-space: nowrap;
+    position: relative;
   }
 
-  .back-btn:hover {
-    background-color: var(--hover-bg);
-    color: var(--accent-primary);
-  }
-
-  #settings-title {
-    margin: 0;
-    font-size: 1.2rem;
-    font-weight: 600;
+  .nav-item:hover {
+    background-color: var(--bg-tertiary);
     color: var(--text-primary);
   }
 
-  .close-btn {
-    background: none;
-    border: none;
-    color: var(--text-secondary);
-    font-size: 1.5rem;
-    cursor: pointer;
-    padding: 4px 8px;
-    border-radius: 4px;
-    transition: all var(--duration-fast) var(--ease-out);
-    line-height: 1;
+  .nav-item.active {
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+    border-color: var(--border-primary);
   }
 
-  .close-btn:hover {
-    background-color: var(--hover-bg);
-    color: var(--error);
+  .nav-item svg {
+    opacity: 0.7;
+    transition: opacity var(--duration-fast);
   }
 
-  .nav-tabs {
-    display: flex;
-    padding: 0 20px;
-  }
-
-  .nav-tab {
-    position: relative;
-    flex: 1;
-    background: none;
-    border: none;
-    color: var(--text-secondary);
-    font-size: 0.85rem;
-    font-weight: 500;
-    padding: 12px 8px;
-    cursor: pointer;
-    transition: all var(--duration-fast) var(--ease-out);
-    text-align: center;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-  }
-
-  .nav-tab:hover {
-    color: var(--accent-secondary);
-  }
-
-  .nav-tab.active {
+  .nav-item:hover svg,
+  .nav-item.active svg {
+    opacity: 1;
     color: var(--accent-primary);
   }
 
-  .nav-tab.active .tab-indicator {
-    background-color: var(--accent-primary);
+  .nav-label {
+    display: none;
   }
 
-  .tab-indicator {
-    position: absolute;
-    bottom: 0;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 24px;
-    height: 2px;
-    background-color: transparent;
-    border-radius: 1px;
-    transition: all var(--duration-fast) var(--ease-out);
+  /* Show labels on larger screens or if space permits */
+  @media (min-width: 400px) {
+    .nav-label {
+      display: inline;
+    }
   }
 
-  .unsaved-dot {
+  .status-dot {
     width: 6px;
     height: 6px;
     background-color: var(--warning);
     border-radius: 50%;
-    margin-left: 4px;
+    position: absolute;
+    top: 6px;
+    right: 6px;
   }
 
-  /* Mobile responsiveness */
-  @media (max-width: 768px) {
-    .nav-header {
-      padding: 12px 16px;
-    }
-
-    .nav-tabs {
-      padding: 0 16px;
-    }
-
-    .nav-tab {
-      font-size: 0.8rem;
-      padding: 10px 4px;
-    }
-
-    #settings-title {
-      font-size: 1.1rem;
-    }
+  .close-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.5rem;
+    background: transparent;
+    border: none;
+    border-radius: 0.5rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all var(--duration-fast);
+    margin-left: 0.5rem;
   }
 
-  /* Focus states for accessibility */
-  .back-btn:focus,
-  .close-btn:focus,
-  .nav-tab:focus {
-    outline: none;
-    box-shadow: var(--shadow-glow);
+  .close-btn:hover {
+    background-color: var(--bg-tertiary);
+    color: var(--error);
   }
-</style> 
+</style>

@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 pub enum RecordingMode {
     Transcription,
     VoiceCommand,
+    Orchestration,
+    Meeting,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -79,6 +81,23 @@ impl RecordingManager {
         let mode = state.mode.clone().unwrap();
         let temp_file_path = state.temp_file_path.clone().unwrap();
 
+        *state = RecordingState::default();
+
+        Ok((mode, temp_file_path))
+    }
+
+    pub fn cancel_recording(&self) -> Result<(RecordingMode, String), String> {
+        let mut state = self.state.lock()
+            .map_err(|e| format!("Failed to lock recording state: {}", e))?;
+        
+        if !state.is_recording {
+            return Err("Not currently recording".to_string());
+        }
+
+        let mode = state.mode.clone().unwrap();
+        let temp_file_path = state.temp_file_path.clone().unwrap();
+
+        // Reset state to default (same as stop_recording)
         *state = RecordingState::default();
 
         Ok((mode, temp_file_path))

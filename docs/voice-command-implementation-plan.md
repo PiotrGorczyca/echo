@@ -2,9 +2,9 @@
 
 ## Overview
 
-This document outlines the implementation of a voice command system for EchoType using double Shift tap as the trigger. The system will enable users to speak natural language commands that get transcribed, analyzed by OpenAI, and routed to appropriate MCP tools for execution.
+This document outlines the implementation of a voice command system for Echo using double Shift tap as the trigger. The system will enable users to speak natural language commands that get transcribed, analyzed by OpenAI, and routed to appropriate MCP tools for execution.
 
-**Project Goal**: Transform EchoType from transcription-only to intelligent voice-controlled AI assistant  
+**Project Goal**: Transform Echo from transcription-only to intelligent voice-controlled AI assistant  
 **Trigger**: Double Shift tap (similar to existing double Alt for transcription)  
 **Flow**: Record → Transcribe → AI Analysis → MCP Tool Execution → Response  
 

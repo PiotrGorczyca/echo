@@ -1,6 +1,8 @@
 pub mod openai;
 pub mod whisper_local;
 pub mod whisper_candle;
+pub mod faster_whisper;
+pub mod python_env;
 
 use serde::{Deserialize, Serialize};
 use async_trait::async_trait;
@@ -15,6 +17,7 @@ pub enum TranscriptionMode {
     OpenAI,
     LocalWhisper,
     CandleWhisper,
+    FasterWhisper,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,6 +27,18 @@ pub struct TranscriptionConfig {
     pub whisper_model_path: Option<String>,
     pub whisper_model_size: WhisperModelSize,
     pub device: DeviceType,
+}
+
+impl Default for TranscriptionConfig {
+    fn default() -> Self {
+        Self {
+            mode: TranscriptionMode::FasterWhisper,
+            openai_api_key: None,
+            whisper_model_path: None,
+            whisper_model_size: WhisperModelSize::LargeTurboQ5,
+            device: DeviceType::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -90,65 +105,165 @@ impl Default for DeviceType {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum WhisperModelSize {
+    // Standard Whisper GGML models (work with both backends)
     Tiny,
     Base,
     Small,
     Medium,
     Large,
     LargeTurbo,
-    // Distil-Whisper models
+
+    // Quantized GGML models (whisper.cpp only - much faster on CPU)
+    SmallQ5,
+    MediumQ5,
+    LargeV3Q5,
+    LargeTurboQ5,
+    LargeTurboQ8,
+
+    // Distil-Whisper models (HuggingFace/Python backend only)
+    DistilSmall,
     DistilMedium,
     DistilLargeV2,
     DistilLargeV3,
+
+    // Moonshine models (HuggingFace/Python backend only - ultra fast on CPU)
+    MoonshineTiny,
+    MoonshineBase,
 }
 
 impl WhisperModelSize {
+    /// GGML filename for whisper.cpp (LocalWhisper) backend
     pub fn model_filename(&self) -> &str {
         match self {
             WhisperModelSize::Tiny => "ggml-tiny.bin",
-            WhisperModelSize::Base => "ggml-base.bin", 
+            WhisperModelSize::Base => "ggml-base.bin",
             WhisperModelSize::Small => "ggml-small.bin",
             WhisperModelSize::Medium => "ggml-medium.bin",
             WhisperModelSize::Large => "ggml-large-v3.bin",
             WhisperModelSize::LargeTurbo => "ggml-large-v3-turbo.bin",
+            WhisperModelSize::SmallQ5 => "ggml-small-q5_1.bin",
+            WhisperModelSize::MediumQ5 => "ggml-medium-q5_0.bin",
+            WhisperModelSize::LargeV3Q5 => "ggml-large-v3-q5_0.bin",
+            WhisperModelSize::LargeTurboQ5 => "ggml-large-v3-turbo-q5_0.bin",
+            WhisperModelSize::LargeTurboQ8 => "ggml-large-v3-turbo-q8_0.bin",
+            // HuggingFace-only models use their model ID as filename placeholder
+            WhisperModelSize::DistilSmall => "distil-small.en",
             WhisperModelSize::DistilMedium => "distil-medium.en",
             WhisperModelSize::DistilLargeV2 => "distil-large-v2",
             WhisperModelSize::DistilLargeV3 => "distil-large-v3",
+            WhisperModelSize::MoonshineTiny => "moonshine-tiny",
+            WhisperModelSize::MoonshineBase => "moonshine-base",
         }
     }
-    
+
+    /// GGML download URL for whisper.cpp (LocalWhisper) backend
     pub fn download_url(&self) -> &str {
         match self {
-            // Using the latest multilingual models from ggerganov's repository
             WhisperModelSize::Tiny => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
             WhisperModelSize::Base => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
             WhisperModelSize::Small => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
             WhisperModelSize::Medium => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin",
             WhisperModelSize::Large => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin",
-            WhisperModelSize::LargeTurbo => "https://huggingface.co/openai/whisper-large-v3-turbo/resolve/main/model.safetensors",
-            // Distil-Whisper models - these are Hugging Face model IDs, not direct URLs
+            WhisperModelSize::LargeTurbo => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
+            WhisperModelSize::SmallQ5 => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin",
+            WhisperModelSize::MediumQ5 => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium-q5_0.bin",
+            WhisperModelSize::LargeV3Q5 => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-q5_0.bin",
+            WhisperModelSize::LargeTurboQ5 => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
+            WhisperModelSize::LargeTurboQ8 => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin",
+            // HuggingFace-only models - these are model IDs, not direct download URLs
+            WhisperModelSize::DistilSmall => "distil-whisper/distil-small.en",
             WhisperModelSize::DistilMedium => "distil-whisper/distil-medium.en",
-            WhisperModelSize::DistilLargeV2 => "distil-whisper/distil-large-v2", 
+            WhisperModelSize::DistilLargeV2 => "distil-whisper/distil-large-v2",
             WhisperModelSize::DistilLargeV3 => "distil-whisper/distil-large-v3",
+            WhisperModelSize::MoonshineTiny => "UsefulSensors/moonshine-tiny",
+            WhisperModelSize::MoonshineBase => "UsefulSensors/moonshine-base",
         }
     }
-    
+
+    /// HuggingFace model ID for the Python (CandleWhisper) backend.
+    /// Quantized variants map to their full-precision HF equivalents.
+    pub fn hf_model_id(&self) -> &str {
+        match self {
+            WhisperModelSize::Tiny => "openai/whisper-tiny",
+            WhisperModelSize::Base => "openai/whisper-base",
+            WhisperModelSize::Small | WhisperModelSize::SmallQ5 => "openai/whisper-small",
+            WhisperModelSize::Medium | WhisperModelSize::MediumQ5 => "openai/whisper-medium",
+            WhisperModelSize::Large | WhisperModelSize::LargeV3Q5 => "openai/whisper-large-v3",
+            WhisperModelSize::LargeTurbo | WhisperModelSize::LargeTurboQ5 | WhisperModelSize::LargeTurboQ8 => "openai/whisper-large-v3-turbo",
+            WhisperModelSize::DistilSmall => "distil-whisper/distil-small.en",
+            WhisperModelSize::DistilMedium => "distil-whisper/distil-medium.en",
+            WhisperModelSize::DistilLargeV2 => "distil-whisper/distil-large-v2",
+            WhisperModelSize::DistilLargeV3 => "distil-whisper/distil-large-v3",
+            WhisperModelSize::MoonshineTiny => "UsefulSensors/moonshine-tiny",
+            WhisperModelSize::MoonshineBase => "UsefulSensors/moonshine-base",
+        }
+    }
+
+    /// Whether this model requires the HuggingFace/Python backend (no GGML available)
+    pub fn requires_python_backend(&self) -> bool {
+        matches!(self,
+            WhisperModelSize::DistilSmall |
+            WhisperModelSize::DistilMedium |
+            WhisperModelSize::DistilLargeV2 |
+            WhisperModelSize::DistilLargeV3 |
+            WhisperModelSize::MoonshineTiny |
+            WhisperModelSize::MoonshineBase
+        )
+    }
+
     pub fn is_distil_model(&self) -> bool {
-        matches!(self, 
-            WhisperModelSize::DistilMedium | 
-            WhisperModelSize::DistilLargeV2 | 
+        matches!(self,
+            WhisperModelSize::DistilSmall |
+            WhisperModelSize::DistilMedium |
+            WhisperModelSize::DistilLargeV2 |
             WhisperModelSize::DistilLargeV3
         )
     }
-    
+
+    pub fn is_moonshine_model(&self) -> bool {
+        matches!(self,
+            WhisperModelSize::MoonshineTiny |
+            WhisperModelSize::MoonshineBase
+        )
+    }
+
     pub fn is_turbo_model(&self) -> bool {
-        matches!(self, WhisperModelSize::LargeTurbo)
+        matches!(self,
+            WhisperModelSize::LargeTurbo |
+            WhisperModelSize::LargeTurboQ5 |
+            WhisperModelSize::LargeTurboQ8
+        )
+    }
+
+    pub fn is_quantized(&self) -> bool {
+        matches!(self,
+            WhisperModelSize::SmallQ5 |
+            WhisperModelSize::MediumQ5 |
+            WhisperModelSize::LargeV3Q5 |
+            WhisperModelSize::LargeTurboQ5 |
+            WhisperModelSize::LargeTurboQ8
+        )
+    }
+
+    pub fn is_english_only(&self) -> bool {
+        matches!(self,
+            WhisperModelSize::DistilSmall |
+            WhisperModelSize::DistilMedium |
+            WhisperModelSize::MoonshineTiny |
+            WhisperModelSize::MoonshineBase
+        )
     }
 }
 
 #[async_trait]
 pub trait TranscriptionBackend: Send + Sync {
     async fn transcribe(&self, audio_file_path: &str) -> Result<String>;
+
+    /// Pre-load the model so the first transcription call is fast.
+    /// Default implementation is a no-op (for backends that load eagerly or use APIs).
+    async fn warm_up(&self) -> Result<()> {
+        Ok(())
+    }
 }
 
 pub struct TranscriptionService {
@@ -165,6 +280,13 @@ impl TranscriptionService {
                 Box::new(openai::OpenAIBackend::new(api_key))
             }
             TranscriptionMode::LocalWhisper => {
+                if config.whisper_model_size.requires_python_backend() {
+                    return Err(anyhow::anyhow!(
+                        "Model {:?} requires the Candle Whisper (Python) backend. \
+                         Please switch to Candle Whisper mode or choose a different model.",
+                        config.whisper_model_size
+                    ));
+                }
                 let model_path = config.whisper_model_path.clone()
                     .or_else(|| Self::default_model_path(&config.whisper_model_size))
                     .ok_or_else(|| anyhow::anyhow!("Whisper model path is required"))?;
@@ -172,6 +294,18 @@ impl TranscriptionService {
             }
             TranscriptionMode::CandleWhisper => {
                 Box::new(whisper_candle::CandleWhisperBackend::new(
+                    config.whisper_model_size.clone(),
+                    config.device.clone(),
+                )?)
+            }
+            TranscriptionMode::FasterWhisper => {
+                if config.whisper_model_size.is_moonshine_model() {
+                    return Err(anyhow::anyhow!(
+                        "Moonshine models are not supported by faster-whisper. \
+                         Please use Candle Whisper mode for Moonshine models."
+                    ));
+                }
+                Box::new(faster_whisper::FasterWhisperBackend::new(
                     config.whisper_model_size.clone(),
                     config.device.clone(),
                 )?)
@@ -184,6 +318,11 @@ impl TranscriptionService {
     pub async fn transcribe(&self, audio_file_path: &str) -> Result<String> {
         self.backend.transcribe(audio_file_path).await
     }
+
+    /// Pre-load the transcription model so the first call is fast.
+    pub async fn warm_up(&self) -> Result<()> {
+        self.backend.warm_up().await
+    }
     
     pub fn get_config(&self) -> &TranscriptionConfig {
         &self.config
@@ -195,7 +334,7 @@ impl TranscriptionService {
     
     fn default_model_path(model_size: &WhisperModelSize) -> Option<String> {
         dirs::data_dir().map(|data_dir| {
-            let model_dir = data_dir.join("echotype").join("models");
+            let model_dir = data_dir.join("echo").join("models");
             model_dir.join(model_size.model_filename()).to_string_lossy().to_string()
         })
     }
@@ -224,16 +363,15 @@ impl TranscriptionService {
     async fn download_model_internal(model_size: &WhisperModelSize, app_handle: Option<AppHandle>) -> Result<String> {
         let model_dir = dirs::data_dir()
             .ok_or_else(|| anyhow::anyhow!("Could not find data directory"))?
-            .join("echotype")
+            .join("echo")
             .join("models");
         
         std::fs::create_dir_all(&model_dir)?;
         
         let model_path = model_dir.join(model_size.model_filename());
         
-        // For Distil-Whisper models, we don't download them manually
-        // They'll be downloaded by the Candle backend when needed
-        if model_size.is_distil_model() {
+        // HuggingFace-only models (Distil-Whisper, Moonshine) are downloaded by the Python backend
+        if model_size.requires_python_backend() {
             return Ok(model_size.download_url().to_string());
         }
         

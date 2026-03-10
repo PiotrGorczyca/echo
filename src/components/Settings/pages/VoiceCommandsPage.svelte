@@ -172,7 +172,7 @@
         id: `welcome-${Date.now()}`,
         timestamp: Date.now(),
         type: 'system' as const,
-        content: 'Voice Commands interface ready. Use Double Shift tap to trigger voice commands, or type commands below for testing.'
+        content: 'Voice Commands interface ready. Use the buttons below to test, or type commands for development.'
       };
       messages = [welcomeMessage];
     }
@@ -188,12 +188,6 @@
         commandState = { ...commandState, ...event.payload };
       });
 
-      // Listen for recording events from double Shift
-      unlistenRecordingEvents = await listen('start-voice-command-recording', () => {
-        console.log('Voice command recording event received');
-        startVoiceRecording();
-      });
-
       console.log('Voice command listeners set up successfully');
 
     } catch (error) {
@@ -204,7 +198,6 @@
   onDestroy(() => {
     if (unlistenVoiceCommand) unlistenVoiceCommand();
     if (unlistenVoiceState) unlistenVoiceState();
-    if (unlistenRecordingEvents) unlistenRecordingEvents();
   });
 </script>
 
@@ -232,10 +225,10 @@
     </div>
     
     <div class="header-actions">
-      <button class="test-btn" on:click={testVoiceCommand} disabled={commandState.is_recording || commandState.is_processing}>
+      <button class="test-btn" onclick={testVoiceCommand} disabled={commandState.is_recording || commandState.is_processing}>
         Test Command
       </button>
-      <button class="clear-btn" on:click={clearHistory} disabled={messages.length === 0}>
+      <button class="clear-btn" onclick={clearHistory} disabled={messages.length === 0}>
         Clear History
       </button>
     </div>
@@ -252,11 +245,11 @@
     <!-- Recording Controls -->
     <div class="recording-controls">
       {#if commandState.current_state === 'idle'}
-        <button class="record-btn" on:click={startVoiceRecording}>
+        <button class="record-btn" onclick={startVoiceRecording}>
           🎤 Start Voice Recording
         </button>
       {:else if commandState.is_recording}
-        <button class="stop-btn" on:click={stopVoiceRecording}>
+        <button class="stop-btn" onclick={stopVoiceRecording}>
           ⏹️ Stop Recording
         </button>
       {:else}
@@ -271,7 +264,7 @@
   <div class="instructions">
     <div class="instruction-item">
       <span class="instruction-icon">⌨️</span>
-      <span>Use <strong>Double Shift tap</strong> to trigger voice commands</span>
+      <span>Double-tap <strong>Shift</strong> triggers the Cloud Code task orchestrator (not voice commands)</span>
     </div>
     <div class="instruction-item">
       <span class="instruction-icon">💬</span>
@@ -355,7 +348,7 @@
       />
       <button 
         class="send-btn" 
-        on:click={sendTextCommand}
+        onclick={sendTextCommand}
         disabled={!messageInput.trim() || commandState.is_recording || commandState.is_processing}
       >
         Send

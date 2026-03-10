@@ -1,0 +1,402 @@
+#!/usr/bin/env bash
+#
+# echo-task - CLI tool for Claude Code to interact with Echo
+#
+# This script wraps curl commands to Echo's local API server.
+# It reads the API endpoint from ~/.config/echo/api_endpoint.json
+#
+# Usage:
+#   echo-task list [--repo /path/to/repo]   - List tasks
+#   echo-task get <task_id>                  - Get task details
+#   echo-task create <title> --repo /path    - Create a new task
+#   echo-task update <task_id> [options]     - Update a task
+#   echo-task done <task_id>                 - Mark task as done
+#   echo-task log <level> <message>          - Send log to Echo
+#   echo-task status                         - Check API status
+#
+# Examples:
+#   echo-task list
+#   echo-task create "Fix login bug" --repo /home/user/project --priority high
+#   echo-task done abc123
+#   echo-task update abc123 --status in_progress --priority critical
+#   echo-task log info "Starting work on feature X"
+
+set -e
+
+# Configuration
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/echo"
+ENDPOINT_FILE="$CONFIG_DIR/api_endpoint.json"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Helper functions
+error() {
+    echo -e "${RED}Error: $1${NC}" >&2
+    exit 1
+}
+
+success() {
+    echo -e "${GREEN}$1${NC}"
+}
+
+info() {
+    echo -e "${BLUE}$1${NC}"
+}
+
+warn() {
+    echo -e "${YELLOW}$1${NC}"
+}
+
+# Get API base URL from config
+get_api_url() {
+    if [[ ! -f "$ENDPOINT_FILE" ]]; then
+        error "Echo API endpoint not found. Make sure Echo is running and the API server is started."
+    fi
+    
+    if command -v jq &> /dev/null; then
+        BASE_URL=$(jq -r '.base_url' "$ENDPOINT_FILE")
+    else
+        # Fallback: grep for base_url
+        BASE_URL=$(grep -o '"base_url":\s*"[^"]*"' "$ENDPOINT_FILE" | cut -d'"' -f4)
+    fi
+    
+    if [[ -z "$BASE_URL" || "$BASE_URL" == "null" ]]; then
+        error "Could not parse API URL from $ENDPOINT_FILE"
+    fi
+    
+    echo "$BASE_URL"
+}
+
+# API request helper
+api_request() {
+    local method="$1"
+    local endpoint="$2"
+    local data="$3"
+    
+    local url="$(get_api_url)$endpoint"
+    
+    if [[ "$method" == "GET" ]]; then
+        curl -s "$url"
+    else
+        curl -s -X "$method" "$url" \
+            -H "Content-Type: application/json" \
+            -d "$data"
+    fi
+}
+
+# Format JSON output (if jq is available)
+format_output() {
+    if command -v jq &> /dev/null; then
+        jq '.'
+    else
+        cat
+    fi
+}
+
+# Commands
+cmd_status() {
+    info "Checking Echo API status..."
+    api_request "GET" "/health" | format_output
+}
+
+cmd_list() {
+    local repo_path=""
+    
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --repo|-r)
+                repo_path="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+    
+    local endpoint="/tasks"
+    if [[ -n "$repo_path" ]]; then
+        endpoint="/tasks?repo_path=$(urlencode "$repo_path")"
+    fi
+    
+    api_request "GET" "$endpoint" | format_output
+}
+
+cmd_get() {
+    local task_id="$1"
+    
+    if [[ -z "$task_id" ]]; then
+        error "Task ID required. Usage: echo-task get <task_id>"
+    fi
+    
+    api_request "GET" "/tasks/$task_id" | format_output
+}
+
+cmd_create() {
+    local title="$1"
+    shift
+    
+    if [[ -z "$title" ]]; then
+        error "Title required. Usage: echo-task create <title> --repo /path [options]"
+    fi
+    
+    local repo_path=""
+    local status="backlog"
+    local priority=""
+    local description=""
+    local labels=""
+    
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --repo|-r)
+                repo_path="$2"
+                shift 2
+                ;;
+            --status|-s)
+                status="$2"
+                shift 2
+                ;;
+            --priority|-p)
+                priority="$2"
+                shift 2
+                ;;
+            --description|-d)
+                description="$2"
+                shift 2
+                ;;
+            --labels|-l)
+                labels="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+    
+    if [[ -z "$repo_path" ]]; then
+        # Try to use current directory
+        repo_path="$(pwd)"
+        warn "No --repo specified, using current directory: $repo_path"
+    fi
+    
+    # Build JSON payload
+    local json="{\"repo_path\": \"$repo_path\", \"title\": \"$title\""
+    
+    if [[ -n "$status" ]]; then
+        json="$json, \"status\": \"$status\""
+    fi
+    if [[ -n "$priority" ]]; then
+        json="$json, \"priority\": \"$priority\""
+    fi
+    if [[ -n "$description" ]]; then
+        json="$json, \"description\": \"$description\""
+    fi
+    
+    json="$json}"
+    
+    info "Creating task: $title"
+    api_request "POST" "/tasks/create" "$json" | format_output
+}
+
+cmd_update() {
+    local task_id="$1"
+    shift
+    
+    if [[ -z "$task_id" ]]; then
+        error "Task ID required. Usage: echo-task update <task_id> [options]"
+    fi
+    
+    local status=""
+    local priority=""
+    local title=""
+    local description=""
+    
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --status|-s)
+                status="$2"
+                shift 2
+                ;;
+            --priority|-p)
+                priority="$2"
+                shift 2
+                ;;
+            --title|-t)
+                title="$2"
+                shift 2
+                ;;
+            --description|-d)
+                description="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+    
+    # Build JSON payload
+    local json="{\"task_id\": \"$task_id\""
+    
+    if [[ -n "$status" ]]; then
+        json="$json, \"status\": \"$status\""
+    fi
+    if [[ -n "$priority" ]]; then
+        json="$json, \"priority\": \"$priority\""
+    fi
+    if [[ -n "$title" ]]; then
+        json="$json, \"title\": \"$title\""
+    fi
+    if [[ -n "$description" ]]; then
+        json="$json, \"description\": \"$description\""
+    fi
+    
+    json="$json}"
+    
+    info "Updating task: $task_id"
+    api_request "POST" "/tasks/update" "$json" | format_output
+}
+
+cmd_done() {
+    local task_id="$1"
+    
+    if [[ -z "$task_id" ]]; then
+        error "Task ID required. Usage: echo-task done <task_id>"
+    fi
+    
+    info "Marking task as done: $task_id"
+    api_request "POST" "/tasks/update" "{\"task_id\": \"$task_id\", \"status\": \"done\"}" | format_output
+}
+
+cmd_log() {
+    local level="$1"
+    local message="$2"
+    
+    if [[ -z "$level" || -z "$message" ]]; then
+        error "Level and message required. Usage: echo-task log <level> <message>"
+    fi
+    
+    api_request "POST" "/log" "{\"level\": \"$level\", \"message\": \"$message\"}" | format_output
+}
+
+cmd_notify() {
+    local event="$1"
+    local message="${2:-}"
+    
+    if [[ -z "$event" ]]; then
+        error "Event required. Usage: echo-task notify <event> [message]"
+    fi
+    
+    api_request "POST" "/notify" "{\"event\": \"$event\", \"message\": \"$message\"}" | format_output
+}
+
+# URL encoding helper
+urlencode() {
+    local string="$1"
+    python3 -c "import urllib.parse; print(urllib.parse.quote('$string'))" 2>/dev/null || echo "$string"
+}
+
+# Show help
+show_help() {
+    cat << 'EOF'
+echo-task - CLI tool for Claude Code to interact with Echo
+
+USAGE:
+    echo-task <command> [arguments] [options]
+
+COMMANDS:
+    status                          Check if Echo API is running
+    list [--repo /path]             List tasks (optionally filtered by repo)
+    get <task_id>                   Get task details by ID
+    create <title> [options]        Create a new task
+    update <task_id> [options]      Update an existing task
+    done <task_id>                  Mark task as done
+    log <level> <message>           Send log message to Echo
+    notify <event> [message]        Send notification event to Echo
+    help                            Show this help message
+
+CREATE OPTIONS:
+    --repo, -r <path>               Repository path (defaults to current dir)
+    --status, -s <status>           Initial status (default: backlog)
+    --priority, -p <priority>       Priority: low, medium, high, critical
+    --description, -d <text>        Task description
+
+UPDATE OPTIONS:
+    --status, -s <status>           New status
+    --priority, -p <priority>       New priority
+    --title, -t <text>              New title
+    --description, -d <text>        New description
+
+STATUS VALUES:
+    backlog, ready, in_progress, blocked, in_review, done
+
+PRIORITY VALUES:
+    low, medium, high, critical
+
+EXAMPLES:
+    echo-task status
+    echo-task list
+    echo-task list --repo /home/user/myproject
+    echo-task create "Fix authentication bug" --repo /home/user/myproject --priority high
+    echo-task update abc123 --status in_progress
+    echo-task done abc123
+    echo-task log info "Started working on feature X"
+    echo-task notify completed "Task finished successfully"
+
+ENVIRONMENT:
+    The script reads the API endpoint from ~/.config/echo/api_endpoint.json
+    which is created when Echo's API server starts.
+EOF
+}
+
+# Main entry point
+main() {
+    local command="${1:-help}"
+    shift 2>/dev/null || true
+    
+    case "$command" in
+        status)
+            cmd_status
+            ;;
+        list|ls)
+            cmd_list "$@"
+            ;;
+        get|show)
+            cmd_get "$@"
+            ;;
+        create|new|add)
+            cmd_create "$@"
+            ;;
+        update|edit)
+            cmd_update "$@"
+            ;;
+        done|complete|finish)
+            cmd_done "$@"
+            ;;
+        log)
+            cmd_log "$@"
+            ;;
+        notify)
+            cmd_notify "$@"
+            ;;
+        help|--help|-h)
+            show_help
+            ;;
+        *)
+            error "Unknown command: $command. Run 'echo-task help' for usage."
+            ;;
+    esac
+}
+
+main "$@"
+
+
+
+
+

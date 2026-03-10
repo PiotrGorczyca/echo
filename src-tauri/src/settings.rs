@@ -1,12 +1,12 @@
 use std::fs;
 use std::path::PathBuf;
-use crate::state::AppSettings;
+use crate::state::{AppSettings, PreferredIde};
 use crate::transcription::{TranscriptionMode, WhisperModelSize, DeviceType};
 
 pub fn get_settings_file_path() -> Result<PathBuf, String> {
     let config_dir = dirs::config_dir()
         .ok_or("Could not find config directory")?;
-    let app_config_dir = config_dir.join("echotype");
+    let app_config_dir = config_dir.join("echo");
     
     // Create directory if it doesn't exist
     if !app_config_dir.exists() {
@@ -43,8 +43,8 @@ pub fn load_settings_from_file() -> AppSettings {
         api_key: String::new(),
         selected_device_id: String::new(),
         auto_paste: true,
-        transcription_mode: TranscriptionMode::OpenAI,
-        whisper_model_size: WhisperModelSize::Base,
+        transcription_mode: TranscriptionMode::FasterWhisper,
+        whisper_model_size: WhisperModelSize::LargeTurboQ5,
         whisper_model_path: None,
         device_type: DeviceType::default(),
         enable_voice_activation: false,
@@ -55,7 +55,8 @@ pub fn load_settings_from_file() -> AppSettings {
         voice_energy_threshold: None,
         auto_calibrate_threshold: true,
         wake_word_model_size: WhisperModelSize::Base,
-        user_mcp_servers: Vec::new(),
+        terminal_emulator: None,
+        preferred_ide: PreferredIde::default(),
     }
 }
 
@@ -69,4 +70,4 @@ pub fn save_settings_to_file(settings: &AppSettings) -> Result<(), String> {
     
     println!("Settings saved to: {}", path.display());
     Ok(())
-} 
+}

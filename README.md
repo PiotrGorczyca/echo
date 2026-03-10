@@ -1,6 +1,6 @@
-# 🎙️ EchoType - Voice-to-Text with Auto-Paste
+# 🎙️ Echo - Voice-to-Text with Auto-Paste
 
-EchoType is a cross-platform Tauri application that records audio from your selected device, transcribes it using OpenAI's Whisper API, and automatically pastes the text into whatever application you're currently focused on.
+Echo is a cross-platform Tauri application that records audio from your selected device, transcribes it using OpenAI's Whisper API, and automatically pastes the text into whatever application you're currently focused on.
 
 ## ✨ Features
 
@@ -25,7 +25,7 @@ EchoType is a cross-platform Tauri application that records audio from your sele
 1. **Clone the repository:**
    ```bash
    git clone <your-repo-url>
-   cd echotype-tauri
+   cd echo-tauri
    ```
 
 2. **Install frontend dependencies:**

@@ -26,43 +26,12 @@ pub async fn hide_overlay_window(app_handle: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn position_main_window(app_handle: AppHandle) -> Result<(), String> {
+    // Standard window mode - let the OS/User handle positioning
+    // We can still ensure it's on screen if needed, but for now we'll leave it alone
+    // to respect the user's last position or default center.
     if let Some(main_window) = app_handle.get_webview_window("main") {
-        // Always use the primary monitor for consistent positioning
-        if let Ok(monitors) = main_window.available_monitors() {
-            let primary_monitor = monitors.iter().find(|m| {
-                // Try to find primary monitor by checking if it's at position (0,0) or has "primary" in name
-                let pos = m.position();
-                pos.x == 0 && pos.y == 0
-            }).or_else(|| monitors.first()).ok_or("No monitors available")?;
-            
-            let monitor_position = primary_monitor.position();
-            let monitor_size = primary_monitor.size();
-            let screen_width = monitor_size.width as i32;
-            let screen_height = monitor_size.height as i32;
-            
-            // Set window size: width of 500px, full height minus a small margin for taskbar
-            let window_width = 500;
-            let window_height = screen_height - 40; // Leave space for taskbar
-            
-            // Position on the right side of the primary monitor
-            let x_position = monitor_position.x + screen_width - window_width;
-            let y_position = monitor_position.y;
-            
-            // Set size and position atomically to prevent flicker
-            main_window.set_size(Size::Physical(tauri::PhysicalSize { 
-                width: window_width as u32, 
-                height: window_height as u32 
-            })).map_err(|e| format!("Failed to set window size: {}", e))?;
-            
-            main_window.set_position(Position::Physical(tauri::PhysicalPosition { 
-                x: x_position, 
-                y: y_position 
-            })).map_err(|e| format!("Failed to set window position: {}", e))?;
-            
-            println!("Main window positioned: {}x{} at ({}, {}) on primary monitor", 
-                     window_width, window_height, x_position, y_position);
-        } else {
-            return Err("Failed to get available monitors".to_string());
+        if let Err(e) = main_window.set_focus() {
+            println!("Failed to focus main window: {}", e);
         }
     }
     Ok(())
@@ -77,13 +46,22 @@ pub fn show_and_focus_main_window(app_handle: &AppHandle) -> Result<(), String> 
             // Window is already visible, bring it to front without flashing
             let _ = window.unminimize(); // In case it's minimized
             
-            // Simple and reliable approach: just set focus multiple times
+            // Use multiple methods to ensure window comes to foreground
             let _ = window.set_focus();
+            let _ = window.set_always_on_top(true);  // Temporarily set on top
             
-            // Small delay then focus again - this helps with stubborn window managers
+            // Request user attention as a fallback
+            let _ = window.request_user_attention(Some(tauri::UserAttentionType::Critical));
+            
+            // Small delay then remove always-on-top and focus again
             let window_clone = window.clone();
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_millis(100));
+                let _ = window_clone.set_always_on_top(false);  // Remove always-on-top
+                let _ = window_clone.set_focus();
+                
+                // Try one more time after another small delay
+                std::thread::sleep(std::time::Duration::from_millis(50));
                 let _ = window_clone.set_focus();
             });
             
@@ -91,17 +69,30 @@ pub fn show_and_focus_main_window(app_handle: &AppHandle) -> Result<(), String> 
         } else {
             // Window is hidden, show it and position it
             let _ = window.show();
+            let _ = window.unminimize(); // In case it's minimized
             
             // Position the window after showing with a small delay
             let app_clone = app_handle.clone();
+            let window_clone = window.clone();
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_millis(50));
                 tauri::async_runtime::block_on(async {
                     let _ = position_main_window(app_clone).await;
                 });
+                
+                // Focus after positioning
+                let _ = window_clone.set_focus();
+                let _ = window_clone.set_always_on_top(true);  // Temporarily set on top
+                
+                // Small delay then remove always-on-top and focus again
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                let _ = window_clone.set_always_on_top(false);
+                let _ = window_clone.set_focus();
             });
             
+            // Initial focus attempt
             let _ = window.set_focus();
+            let _ = window.request_user_attention(Some(tauri::UserAttentionType::Critical));
             println!("Window was hidden, showed and positioned");
         }
     }

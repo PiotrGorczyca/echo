@@ -44,7 +44,7 @@ pub struct VoiceActivityInfo {
 pub struct VoiceActivationService {
     config: VoiceActivationConfig,
     audio_buffer: Arc<Mutex<VecDeque<f32>>>,
-    transcription_service: Option<Arc<Mutex<TranscriptionService>>>, // External service, can be None
+    transcription_service: Option<Arc<TranscriptionService>>, // External service, can be None
     is_listening: Arc<Mutex<bool>>,
     last_check_time: Arc<Mutex<Instant>>,
     app_handle: AppHandle,
@@ -160,21 +160,14 @@ impl VoiceActivationService {
     pub fn new(
         config: VoiceActivationConfig,
         app_handle: AppHandle,
-        external_transcription_service: Option<Arc<Mutex<TranscriptionService>>>, // Check for existing service first
+        external_transcription_service: Option<Arc<TranscriptionService>>, // Check for existing service first
     ) -> Result<Self> {
         println!("🎙️ Creating VoiceActivationService with config: device_id='{}', wake_words={:?}, sensitivity={}", 
                  config.device_id, config.wake_words, config.sensitivity);
         
         let transcription_service = if let Some(existing_service) = external_transcription_service {
             // Check if existing service is compatible (Candle Whisper)
-            let is_compatible = {
-                if let Ok(service) = existing_service.lock() {
-                    // Check if it's a Candle Whisper service by trying to access its config
-                    service.is_candle_whisper()
-                } else {
-                    false
-                }
-            };
+            let is_compatible = existing_service.is_candle_whisper();
             
             if is_compatible {
                 println!("✅ Reusing existing Candle Whisper transcription service for wake words");
@@ -211,7 +204,7 @@ impl VoiceActivationService {
         })
     }
     
-    fn create_dedicated_wake_word_service(config: &VoiceActivationConfig) -> Result<Option<Arc<Mutex<TranscriptionService>>>> {
+    fn create_dedicated_wake_word_service(config: &VoiceActivationConfig) -> Result<Option<Arc<TranscriptionService>>> {
         println!("🔧 Creating dedicated transcription service for wake word detection...");
         let wake_word_config = TranscriptionConfig {
             mode: TranscriptionMode::CandleWhisper, // Use local option for wake words
@@ -224,7 +217,7 @@ impl VoiceActivationService {
         match TranscriptionService::new(wake_word_config) {
             Ok(service) => {
                 println!("✅ Dedicated wake word transcription service created successfully");
-                Ok(Some(Arc::new(Mutex::new(service))))
+                Ok(Some(Arc::new(service)))
             }
             Err(e) => {
                 eprintln!("❌ Failed to create wake word transcription service: {}", e);
@@ -266,7 +259,7 @@ impl VoiceActivationService {
         self.is_listening.lock().map(|state| *state).unwrap_or(false)
     }
     
-    pub fn get_transcription_service(&self) -> &Option<Arc<Mutex<TranscriptionService>>> {
+    pub fn get_transcription_service(&self) -> &Option<Arc<TranscriptionService>> {
         &self.transcription_service
     }
     
@@ -677,7 +670,7 @@ impl VoiceActivationService {
     
     async fn check_for_wake_words_with_vad(
         vad_state: &Arc<Mutex<VadState>>,
-        transcription_service: &Arc<Mutex<TranscriptionService>>,
+        transcription_service: &Arc<TranscriptionService>,
         wake_words: &[String],
         sensitivity: f32,
     ) -> Result<WakeWordDetection> {
@@ -717,39 +710,23 @@ impl VoiceActivationService {
         }
         writer.finalize()?;
         
-        // Transcribe the speech audio
+        // Transcribe the speech audio directly (no Mutex needed)
         let transcription = {
             let temp_file_path = temp_file.path().to_str().unwrap().to_string();
-            let service_clone = transcription_service.clone();
-            
-            // Create a separate task to handle transcription
-            let transcription_result = tokio::task::spawn_blocking(move || {
-                let service = service_clone.lock().map_err(|e| anyhow::anyhow!("Failed to lock transcription service: {}", e))?;
-                
-                // Use a runtime handle to run async code in the blocking context
-                let rt = tokio::runtime::Handle::current();
-                rt.block_on(service.transcribe(&temp_file_path))
-            }).await;
-            
-            match transcription_result {
-                Ok(result) => {
-                    match result {
-                        Ok(text) => {
-                            let transcription_time = start_time.elapsed();
-                            if !text.trim().is_empty() {
-                                println!("🎯 Transcribed speech: '{}' (took {:.2}ms)", text.trim(), transcription_time.as_millis());
-                            } else {
-                                println!("🔇 Empty transcription (took {:.2}ms)", transcription_time.as_millis());
-                            }
-                            text
-                        }
-                        Err(e) => {
-                            println!("❌ Transcription failed: {}", e);
-                            return Err(e);
-                        }
+            match transcription_service.transcribe(&temp_file_path).await {
+                Ok(text) => {
+                    let transcription_time = start_time.elapsed();
+                    if !text.trim().is_empty() {
+                        println!("🎯 Transcribed speech: '{}' (took {:.2}ms)", text.trim(), transcription_time.as_millis());
+                    } else {
+                        println!("🔇 Empty transcription (took {:.2}ms)", transcription_time.as_millis());
                     }
+                    text
                 }
-                Err(e) => return Err(anyhow::anyhow!("Transcription task failed: {}", e)),
+                Err(e) => {
+                    println!("❌ Transcription failed: {}", e);
+                    return Err(e);
+                }
             }
         };
         

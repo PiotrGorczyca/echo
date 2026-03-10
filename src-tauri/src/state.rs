@@ -4,8 +4,10 @@ use serde::{Deserialize, Serialize};
 use crate::transcription::{TranscriptionService, TranscriptionMode, WhisperModelSize, DeviceType};
 use crate::voice_activation::VoiceActivationService;
 use crate::voice_command::VoiceCommandService;
-use crate::mcp::{McpClient, McpServerRegistry};
+use crate::mcp::McpClient;
 use crate::ai_agent::AiAgentCore;
+use crate::meeting::{service::MeetingService, MeetingRecordingConfig};
+use crate::history::HistoryManager;
 
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -18,6 +20,14 @@ pub struct AudioDevice {
 pub struct RecordingState {
     pub is_recording: bool,
     pub device_name: String,
+}
+
+/// Preferred IDE for "Work on this" feature
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
+pub enum PreferredIde {
+    #[default]
+    ClaudeCode,
+    Cursor,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -38,8 +48,10 @@ pub struct AppSettings {
     pub voice_energy_threshold: Option<f32>, // Custom energy threshold for voice detection
     pub auto_calibrate_threshold: bool, // Whether to auto-calibrate the energy threshold
     pub wake_word_model_size: WhisperModelSize, // Model size for wake word detection
-    // MCP Integration settings
-    pub user_mcp_servers: Vec<crate::ai_agent::integrations::UserMcpServer>, // User-defined MCP servers
+    pub terminal_emulator: Option<String>,
+    // IDE preference for "Work on this" feature
+    #[serde(default)]
+    pub preferred_ide: PreferredIde,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -83,7 +95,7 @@ pub struct AppState {
     pub last_alt_press: Option<Instant>,
     pub alt_tap_count: u32,
     pub recording_start_time: Option<Instant>,
-    pub transcription_service: Option<Arc<Mutex<TranscriptionService>>>,
+    pub transcription_service: Option<Arc<TranscriptionService>>,
     // Voice activation state
     pub is_voice_listening: bool,
     pub wake_word_detected_at: Option<Instant>,
@@ -93,9 +105,14 @@ pub struct AppState {
     // AI Agent state
     pub ai_agent: Option<Arc<AiAgentCore>>,
     pub mcp_client: Option<Arc<McpClient>>,
-    pub mcp_registry: Option<Arc<McpServerRegistry>>,
+    // Meeting state
+    pub meeting_service: Arc<MeetingService>,
     // Test recording mode (skips transcription)
     pub is_test_recording: bool,
+    // Transcription history
+    pub history_manager: Option<Arc<HistoryManager>>,
+    // Watcher for Cursor handoff
+    pub handoff_watcher: Option<Arc<Mutex<crate::workspace::CursorHandoffWatcher>>>,
 }
 
 impl Default for AppState {
@@ -108,8 +125,8 @@ impl Default for AppState {
                 api_key: String::new(),
                 selected_device_id: String::new(),
                 auto_paste: true,
-                transcription_mode: TranscriptionMode::OpenAI,
-                whisper_model_size: WhisperModelSize::Small,
+                transcription_mode: TranscriptionMode::FasterWhisper,
+                whisper_model_size: WhisperModelSize::LargeTurboQ5,
                 whisper_model_path: None,
                 device_type: DeviceType::default(),
                 enable_voice_activation: false,
@@ -120,7 +137,8 @@ impl Default for AppState {
                 voice_energy_threshold: None,
                 auto_calibrate_threshold: true,
                 wake_word_model_size: WhisperModelSize::Base,
-                user_mcp_servers: Vec::new(),
+                terminal_emulator: None,
+                preferred_ide: PreferredIde::default(),
             },
             last_alt_press: None,
             alt_tap_count: 0,
@@ -132,8 +150,15 @@ impl Default for AppState {
             voice_command_service: None,
             ai_agent: None,
             mcp_client: None,
-            mcp_registry: None,
+            meeting_service: Arc::new(MeetingService::new(
+                None, // Will be connected to main transcription service when initialized
+                std::env::temp_dir().join("echo_meetings"),
+                MeetingRecordingConfig::default(),
+                None, // API key will be set later when available
+            ).unwrap()),
             is_test_recording: false,
+            history_manager: None,
+            handoff_watcher: None,
         }
     }
-} 
+}

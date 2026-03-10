@@ -101,7 +101,7 @@ pub struct SamplingCapability {}
 /// Roots Capability
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RootsCapability {
-    #[serde(rename = "listChanged")]
+    #[serde(rename = "listChanged", default)]
     pub list_changed: bool,
 }
 
@@ -112,22 +112,23 @@ pub struct LoggingCapability {}
 /// Prompts Capability
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PromptsCapability {
-    #[serde(rename = "listChanged")]
+    #[serde(rename = "listChanged", default)]
     pub list_changed: bool,
 }
 
 /// Resources Capability
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResourcesCapability {
+    #[serde(default)]
     pub subscribe: bool,
-    #[serde(rename = "listChanged")]
+    #[serde(rename = "listChanged", default)]
     pub list_changed: bool,
 }
 
 /// Tools Capability
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolsCapability {
-    #[serde(rename = "listChanged")]
+    #[serde(rename = "listChanged", default)]
     pub list_changed: bool,
 }
 
@@ -152,7 +153,7 @@ pub struct CallToolRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CallToolResponse {
     pub content: Vec<ToolContent>,
-    #[serde(rename = "isError")]
+    #[serde(rename = "isError", default)]
     pub is_error: bool,
 }
 
@@ -253,8 +254,35 @@ pub struct McpServerConfig {
     pub command: String,
     pub args: Vec<String>,
     pub env: HashMap<String, String>,
+    #[serde(deserialize_with = "deserialize_transport_type")]
     pub transport: TransportType,
     pub enabled: bool,
+}
+
+fn deserialize_transport_type<'de, D>(deserializer: D) -> Result<TransportType, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+    
+    let value: serde_json::Value = serde::Deserialize::deserialize(deserializer)?;
+    
+    match value {
+        serde_json::Value::String(s) => {
+            match s.as_str() {
+                "stdio" => Ok(TransportType::Stdio),
+                "websocket" => Ok(TransportType::WebSocket { url: "".to_string() }),
+                "http" => Ok(TransportType::Http { url: "".to_string() }),
+                _ => Ok(TransportType::Stdio), // Default fallback
+            }
+        }
+        serde_json::Value::Object(obj) => {
+            // Try to deserialize as the full enum
+            serde_json::from_value(serde_json::Value::Object(obj))
+                .map_err(|e| D::Error::custom(format!("Invalid transport type: {}", e)))
+        }
+        _ => Ok(TransportType::Stdio), // Default fallback
+    }
 }
 
 /// Transport Type
@@ -266,6 +294,29 @@ pub enum TransportType {
     WebSocket { url: String },
     #[serde(rename = "http")]
     Http { url: String },
+}
+
+impl Default for TransportType {
+    fn default() -> Self {
+        TransportType::Stdio
+    }
+}
+
+impl From<&str> for TransportType {
+    fn from(s: &str) -> Self {
+        match s {
+            "stdio" => TransportType::Stdio,
+            "websocket" => TransportType::WebSocket { url: "".to_string() },
+            "http" => TransportType::Http { url: "".to_string() },
+            _ => TransportType::Stdio,
+        }
+    }
+}
+
+impl From<String> for TransportType {
+    fn from(s: String) -> Self {
+        TransportType::from(s.as_str())
+    }
 }
 
 /// MCP Error Codes

@@ -3,7 +3,7 @@ use anyhow::{anyhow, Result};
 use serde_json::Value;
 use std::collections::HashMap;
 
-/// Built-in MCP Server for EchoType-specific functionality
+/// Built-in MCP Server for Echo-specific functionality
 pub struct BuiltInMcpServer {
     tools: Vec<McpTool>,
     resources: Vec<McpResource>,
@@ -87,13 +87,13 @@ impl BuiltInMcpServer {
 
         let resources = vec![
             McpResource {
-                uri: "echotype://conversations".to_string(),
+                uri: "echo://conversations".to_string(),
                 name: "Conversation History".to_string(),
                 description: "Access to conversation history and transcripts".to_string(),
                 mime_type: "application/json".to_string(),
             },
             McpResource {
-                uri: "echotype://settings".to_string(),
+                uri: "echo://settings".to_string(),
                 name: "Application Settings".to_string(),
                 description: "Current application settings and configuration".to_string(),
                 mime_type: "application/json".to_string(),
@@ -230,7 +230,7 @@ impl BuiltInMcpServer {
         // This would integrate with the existing settings system
         let settings = serde_json::json!({
             "enable_voice_activation": true,
-            "wake_words": ["hey echotype", "echo"],
+            "wake_words": ["hey echo", "echo"],
             "sensitivity": 0.5,
             "transcription_mode": "CandleWhisper"
         });
@@ -258,14 +258,14 @@ impl BuiltInMcpServer {
 
     pub async fn get_resource(&self, uri: &str) -> Result<Value> {
         match uri {
-            "echotype://conversations" => {
+            "echo://conversations" => {
                 // Return conversation history
                 Ok(serde_json::json!({
                     "conversations": [],
                     "total_count": 0
                 }))
             }
-            "echotype://settings" => {
+            "echo://settings" => {
                 // Return current settings
                 Ok(serde_json::json!({
                     "voice_activation": true,

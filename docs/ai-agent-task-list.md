@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document tracks the development progress of the EchoType AI Agent transformation from a simple transcription tool to an intelligent assistant with MCP integration.
+This document tracks the development progress of the Echo AI Agent transformation from a simple transcription tool to an intelligent assistant with MCP integration.
 
 **Last Updated**: December 2024  
 **Overall Progress**: ~65% Foundation Complete
