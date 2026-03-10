@@ -70,21 +70,12 @@ impl OpenAiClient {
     }
     
     pub fn new(api_key: String) -> Result<Self> {
-        println!("🔧 OpenAI Client Initialization Debug:");
-        println!("   API Key length: {}", api_key.len());
-        println!("   API Key starts with: {}", if api_key.len() > 10 { 
-            api_key.chars().take(10).collect::<String>() 
-        } else { 
-            "<too short>".to_string() 
-        });
-        
         if api_key.is_empty() {
-            println!("❌ OpenAI API key is empty!");
             return Err(anyhow!("OpenAI API key is empty"));
         }
-        
+
         if api_key.len() < 20 {
-            println!("⚠️ OpenAI API key seems too short ({}), might be invalid", api_key.len());
+            eprintln!("Warning: OpenAI API key seems too short, might be invalid");
         }
         
         if !api_key.starts_with("sk-") {

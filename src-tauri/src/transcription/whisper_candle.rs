@@ -744,7 +744,7 @@ if __name__ == "__main__":
 
     fn get_python_cmd(&self) -> String {
         if self.device_type == DeviceType::Rocm {
-            let home = std::env::var("HOME").unwrap_or_else(|_| "/home/user".to_string());
+            let home = std::env::var("HOME").expect("HOME environment variable not set");
             format!("{}/.rocm_pytorch_env/bin/python", home)
         } else {
             python_env::venv_python().unwrap_or_else(|_| "python3".to_string())
@@ -752,7 +752,7 @@ if __name__ == "__main__":
     }
 
     fn set_rocm_env(&self, cmd: &mut tokio::process::Command) {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/home/user".to_string());
+        let home = std::env::var("HOME").expect("HOME environment variable not set");
         let rocm_site_packages = format!("{}/.rocm_pytorch_env/lib/python3.13/site-packages", home);
         cmd.env("HSA_OVERRIDE_GFX_VERSION", "11.0.2")
             .env("HIP_VISIBLE_DEVICES", "0")
