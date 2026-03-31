@@ -19,12 +19,15 @@ It supports multiple transcription backends (cloud and local), works across Linu
 
 | Backend | Type | Speed | Setup | Best For |
 |---------|------|-------|-------|----------|
+| **Parakeet TDT v3** (ONNX) | Local (Rust) | Fastest | Automatic model download | Best speed, no Python, 25 European languages |
 | **OpenAI Whisper API** | Cloud | Fast | API key | Highest accuracy, any language |
-| **Local Whisper** (whisper.cpp) | Local | Medium | Automatic model download | Privacy-focused, offline use |
-| **Faster Whisper** | Local (Python) | Fast | Python venv + model | Best local speed, persistent server |
+| **Local Whisper** (whisper.cpp) | Local (Rust) | Medium | Automatic model download | Privacy-focused, offline use |
+| **Faster Whisper** | Local (Python) | Fast | Python venv + model | Good local speed, persistent server |
 | **Candle Whisper** | Local (Python) | Medium | Python venv | Experimental |
 
-**Supported models**: Tiny, Base, Small, Medium, Large, LargeTurbo, quantized variants (Q5/Q8), Distil-Whisper (HuggingFace), and Moonshine (ultra-fast CPU inference).
+**Parakeet TDT v3** is the recommended backend. It uses [NVIDIA's Parakeet](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) speech recognition model via ONNX Runtime, running entirely in Rust with no Python dependency. The INT8 quantized model (~640 MB) achieves ~30x real-time speed on CPU -- faster than Whisper on a GPU. Supports 25 European languages (including Polish, German, French, Spanish, and others) with automatic language detection. Available in INT8 (recommended) and FP32 variants.
+
+**Whisper models**: Tiny, Base, Small, Medium, Large, LargeTurbo, quantized variants (Q5/Q8), Distil-Whisper (HuggingFace), and Moonshine (ultra-fast CPU inference).
 
 ### Voice Commands (Legacy / Proof of Concept)
 
@@ -128,7 +131,7 @@ sudo dnf install xdotool xprop wl-clipboard
 | `xprop` | Window class detection (terminal vs GUI app) | Yes |
 | `xclip` | Clipboard fallback for X11 | Optional (X11 only) |
 
-**For local transcription backends** (optional):
+**For Python-based backends only** (not needed for Parakeet or Local Whisper):
 ```bash
 # Python venv for Faster Whisper / Candle Whisper
 sudo pacman -S python python-pip    # Arch
@@ -193,8 +196,8 @@ Echo determines the best paste strategy based on the focused window:
 
 Settings are stored in `~/.config/echo/settings.json` and include:
 
-- **Transcription mode**: OpenAI API, Local Whisper, Faster Whisper, Candle Whisper
-- **Whisper model**: From Tiny to Large, quantized, Distil, and Moonshine variants
+- **Transcription mode**: Parakeet TDT v3, OpenAI API, Local Whisper, Faster Whisper, Candle Whisper
+- **Model**: Parakeet TDT (INT8/FP32), Whisper (Tiny to Large, quantized, Distil, Moonshine)
 - **Audio device**: Selected input device
 - **Auto-paste**: Enable/disable automatic text insertion
 - **Language**: Transcription language hint (or auto-detect)
@@ -224,6 +227,7 @@ echo/
       history.rs                # Transcription history (JSON)
       transcription/
         mod.rs                  # TranscriptionService abstraction
+        parakeet.rs             # Parakeet TDT v3 via ONNX Runtime (parakeet-rs)
         openai.rs               # OpenAI Whisper API client
         whisper_local.rs        # whisper.cpp via whisper-rs (with model cache)
         faster_whisper.rs       # Python persistent server (JSON-line protocol)
@@ -240,6 +244,7 @@ echo/
 ### Key Design Decisions
 
 - **`TranscriptionService`** uses `Arc<TranscriptionService>` (not `Arc<Mutex<>>`) since `transcribe(&self)` only needs a shared reference
+- **Parakeet TDT v3** runs entirely in Rust via `parakeet-rs` and ONNX Runtime -- no Python dependency, model loaded once into a `Mutex<ParakeetTDT>`, ONNX files downloaded from HuggingFace on first use
 - **Faster Whisper** runs as a persistent Python child process communicating via JSON-line protocol over stdin/stdout to avoid model reload on each transcription
 - **Local Whisper** maintains a global `MODEL_CACHE` (static HashMap) so models are loaded once and reused
 - **Audio device** is pre-warmed at startup in a background thread to avoid 3-5 second ALSA enumeration delays on first recording
@@ -255,6 +260,7 @@ echo/
 | tauri 2.0 | Application framework |
 | cpal | Cross-platform audio capture |
 | hound | WAV file encoding |
+| parakeet-rs | Parakeet TDT v3 speech recognition (ONNX Runtime) |
 | whisper-rs | Local Whisper (whisper.cpp bindings) |
 | reqwest | HTTP client (OpenAI API) |
 | arboard | Clipboard access |
