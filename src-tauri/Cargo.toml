@@ -40,7 +40,7 @@ device_query = "2.1"
 dirs = "5.0"
 notify-rust = "4.10"
 async-trait = "0.1"
-whisper-rs = "0.11"
+whisper-rs = "0.16"
 futures-util = "0.3"
 once_cell = "1.19"
 rand = "0.8"
@@ -87,6 +87,9 @@ thiserror = "1.0"
 parking_lot = "0.12"
 which = "8.0.0"
 notify = "8.2.0"
+
+# Parakeet speech recognition (ONNX Runtime)
+parakeet-rs = "0.3"
 
 # HTTP server for Claude Code API
 warp = "0.3"

@@ -1403,6 +1403,8 @@ pub fn run() {
             // Transcription dependency management
             commands::transcription::check_backend_deps,
             commands::transcription::install_backend_deps,
+            commands::transcription::check_model_downloaded,
+            commands::transcription::download_model,
 
             // Claude Code integration
             claude::invoke::send_to_claude_code,
@@ -2620,6 +2622,17 @@ fn monitor_alt_keys(app_handle: AppHandle) {
         }
 
         // === SHIFT KEY DETECTION (task orchestration) ===
+        // Only detect double-shift if the orchestration shortcut is enabled in settings
+        let orchestration_enabled = {
+            let state = app_handle.state::<Arc<Mutex<AppState>>>();
+            if let Ok(app_state) = state.inner().lock() {
+                app_state.settings.orchestration_shortcut == "ShiftShift"
+            } else {
+                false
+            }
+        };
+
+        if orchestration_enabled {
         // Detect Shift key press (transition from not-pressed to pressed)
         if shift_currently_pressed && !shift_was_pressed {
             shift_press_start = Some(now);
@@ -2678,6 +2691,12 @@ fn monitor_alt_keys(app_handle: AppHandle) {
                 }
             }
             shift_press_start = None;
+        }
+        } else {
+            // Orchestration shortcut disabled — reset shift tracking state
+            shift_was_pressed = shift_currently_pressed;
+            shift_press_start = None;
+            shift_tap_count = 0;
         }
         
         // === ESC KEY DETECTION (cancel recording) ===

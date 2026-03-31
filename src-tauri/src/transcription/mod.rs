@@ -2,6 +2,7 @@ pub mod openai;
 pub mod whisper_local;
 pub mod whisper_candle;
 pub mod faster_whisper;
+pub mod parakeet;
 pub mod python_env;
 
 use serde::{Deserialize, Serialize};
@@ -18,6 +19,7 @@ pub enum TranscriptionMode {
     LocalWhisper,
     CandleWhisper,
     FasterWhisper,
+    Parakeet,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -129,6 +131,10 @@ pub enum WhisperModelSize {
     // Moonshine models (HuggingFace/Python backend only - ultra fast on CPU)
     MoonshineTiny,
     MoonshineBase,
+
+    // Parakeet TDT v3 models (ONNX Runtime, 25 European languages)
+    ParakeetTDT,
+    ParakeetTDTInt8,
 }
 
 impl WhisperModelSize {
@@ -153,6 +159,9 @@ impl WhisperModelSize {
             WhisperModelSize::DistilLargeV3 => "distil-large-v3",
             WhisperModelSize::MoonshineTiny => "moonshine-tiny",
             WhisperModelSize::MoonshineBase => "moonshine-base",
+            // Parakeet models use a directory name
+            WhisperModelSize::ParakeetTDT => "parakeet-tdt-v3",
+            WhisperModelSize::ParakeetTDTInt8 => "parakeet-tdt-v3-int8",
         }
     }
 
@@ -177,6 +186,10 @@ impl WhisperModelSize {
             WhisperModelSize::DistilLargeV3 => "distil-whisper/distil-large-v3",
             WhisperModelSize::MoonshineTiny => "UsefulSensors/moonshine-tiny",
             WhisperModelSize::MoonshineBase => "UsefulSensors/moonshine-base",
+            // Parakeet models - base HuggingFace repo URL
+            WhisperModelSize::ParakeetTDT | WhisperModelSize::ParakeetTDTInt8 => {
+                "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main"
+            }
         }
     }
 
@@ -196,6 +209,9 @@ impl WhisperModelSize {
             WhisperModelSize::DistilLargeV3 => "distil-whisper/distil-large-v3",
             WhisperModelSize::MoonshineTiny => "UsefulSensors/moonshine-tiny",
             WhisperModelSize::MoonshineBase => "UsefulSensors/moonshine-base",
+            WhisperModelSize::ParakeetTDT | WhisperModelSize::ParakeetTDTInt8 => {
+                "istupakov/parakeet-tdt-0.6b-v3-onnx"
+            }
         }
     }
 
@@ -252,6 +268,31 @@ impl WhisperModelSize {
             WhisperModelSize::MoonshineTiny |
             WhisperModelSize::MoonshineBase
         )
+    }
+
+    pub fn is_parakeet_model(&self) -> bool {
+        matches!(self,
+            WhisperModelSize::ParakeetTDT |
+            WhisperModelSize::ParakeetTDTInt8
+        )
+    }
+
+    /// Returns the list of files to download for Parakeet models
+    pub fn parakeet_download_files(&self) -> Vec<(&str, &str)> {
+        match self {
+            WhisperModelSize::ParakeetTDTInt8 => vec![
+                ("encoder-model.int8.onnx", "encoder-model.int8.onnx"),
+                ("decoder_joint-model.int8.onnx", "decoder_joint-model.int8.onnx"),
+                ("vocab.txt", "vocab.txt"),
+            ],
+            WhisperModelSize::ParakeetTDT => vec![
+                ("encoder-model.onnx", "encoder-model.onnx"),
+                ("encoder-model.onnx.data", "encoder-model.onnx.data"),
+                ("decoder_joint-model.onnx", "decoder_joint-model.onnx"),
+                ("vocab.txt", "vocab.txt"),
+            ],
+            _ => vec![],
+        }
     }
 }
 
@@ -310,6 +351,18 @@ impl TranscriptionService {
                     config.device.clone(),
                 )?)
             }
+            TranscriptionMode::Parakeet => {
+                if !config.whisper_model_size.is_parakeet_model() {
+                    return Err(anyhow::anyhow!(
+                        "Model {:?} is not a Parakeet model. \
+                         Please select a Parakeet model (ParakeetTDT or ParakeetTDTInt8).",
+                        config.whisper_model_size
+                    ));
+                }
+                let model_dir = Self::parakeet_model_dir(&config.whisper_model_size)
+                    .ok_or_else(|| anyhow::anyhow!("Could not determine Parakeet model directory"))?;
+                Box::new(parakeet::ParakeetBackend::new(model_dir)?)
+            }
         };
         
         Ok(Self { config, backend })
@@ -338,6 +391,13 @@ impl TranscriptionService {
             model_dir.join(model_size.model_filename()).to_string_lossy().to_string()
         })
     }
+
+    fn parakeet_model_dir(model_size: &WhisperModelSize) -> Option<String> {
+        dirs::data_dir().map(|data_dir| {
+            let model_dir = data_dir.join("echo").join("models").join(model_size.model_filename());
+            model_dir.to_string_lossy().to_string()
+        })
+    }
     
     pub async fn download_model_with_progress(model_size: &WhisperModelSize, app_handle: AppHandle) -> Result<String> {
         let model_name = format!("{:?}", model_size);
@@ -361,15 +421,20 @@ impl TranscriptionService {
     }
     
     async fn download_model_internal(model_size: &WhisperModelSize, app_handle: Option<AppHandle>) -> Result<String> {
+        // Parakeet models need multi-file download
+        if model_size.is_parakeet_model() {
+            return Self::download_parakeet_model(model_size, app_handle).await;
+        }
+
         let model_dir = dirs::data_dir()
             .ok_or_else(|| anyhow::anyhow!("Could not find data directory"))?
             .join("echo")
             .join("models");
-        
+
         std::fs::create_dir_all(&model_dir)?;
-        
+
         let model_path = model_dir.join(model_size.model_filename());
-        
+
         // HuggingFace-only models (Distil-Whisper, Moonshine) are downloaded by the Python backend
         if model_size.requires_python_backend() {
             return Ok(model_size.download_url().to_string());
@@ -513,4 +578,162 @@ impl TranscriptionService {
         
         Ok(model_path.to_string_lossy().to_string())
     }
-} 
+
+    async fn download_parakeet_model(model_size: &WhisperModelSize, app_handle: Option<AppHandle>) -> Result<String> {
+        let model_dir = dirs::data_dir()
+            .ok_or_else(|| anyhow::anyhow!("Could not find data directory"))?
+            .join("echo")
+            .join("models")
+            .join(model_size.model_filename());
+
+        std::fs::create_dir_all(&model_dir)?;
+
+        let base_url = model_size.download_url();
+        let files = model_size.parakeet_download_files();
+        let model_name = format!("{:?}", model_size);
+
+        if let Some(ref ah) = app_handle {
+            let start_event = DownloadEvent {
+                event_type: "started".to_string(),
+                progress: None,
+                message: format!("Starting download of {} model ({} files)...", model_name, files.len()),
+            };
+            let _ = ah.emit("download-event", start_event);
+        }
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(1800))
+            .build()?;
+
+        let mut total_downloaded: u64 = 0;
+
+        for (i, (remote_name, local_name)) in files.iter().enumerate() {
+            let file_path = model_dir.join(local_name);
+
+            // Skip if file already exists with non-zero size
+            if file_path.exists() {
+                if let Ok(meta) = std::fs::metadata(&file_path) {
+                    if meta.len() > 0 {
+                        println!("[parakeet] File already exists: {}", local_name);
+                        continue;
+                    }
+                }
+            }
+
+            let url = format!("{}/{}", base_url, remote_name);
+            println!("[parakeet] Downloading file {}/{}: {} from {}", i + 1, files.len(), local_name, url);
+
+            let response = client.get(&url).send().await?;
+            if !response.status().is_success() {
+                return Err(anyhow::anyhow!(
+                    "Failed to download {}: HTTP {}",
+                    remote_name,
+                    response.status()
+                ));
+            }
+
+            let file_size = response.content_length().unwrap_or(0);
+            let mut file = std::fs::File::create(&file_path)?;
+            let mut downloaded: u64 = 0;
+            let mut stream = response.bytes_stream();
+            let start_time = Instant::now();
+            let mut last_progress_emit = Instant::now();
+
+            use futures_util::StreamExt;
+            use std::io::Write;
+
+            while let Some(chunk) = stream.next().await {
+                let chunk = chunk?;
+                file.write_all(&chunk)?;
+                downloaded += chunk.len() as u64;
+
+                let progress = if file_size > 0 {
+                    (downloaded as f64 / file_size as f64) * 100.0
+                } else {
+                    0.0
+                };
+
+                let elapsed = start_time.elapsed();
+                let speed_mbps = if elapsed.as_secs() > 0 {
+                    (downloaded as f64 / 1024.0 / 1024.0) / elapsed.as_secs_f64()
+                } else {
+                    0.0
+                };
+
+                let should_emit = last_progress_emit.elapsed() >= Duration::from_secs(1)
+                    || downloaded == file_size;
+
+                if should_emit {
+                    if let Some(ref ah) = app_handle {
+                        let progress_data = DownloadProgress {
+                            model_name: model_name.clone(),
+                            progress_percent: progress,
+                            downloaded_bytes: total_downloaded + downloaded,
+                            total_bytes: file_size,
+                            download_speed_mbps: speed_mbps,
+                            eta_seconds: if speed_mbps > 0.0 {
+                                Some(((file_size - downloaded) as f64 / 1024.0 / 1024.0 / speed_mbps) as u64)
+                            } else {
+                                None
+                            },
+                            stage: format!("downloading file {}/{}", i + 1, files.len()),
+                            error_message: None,
+                        };
+
+                        let progress_event = DownloadEvent {
+                            event_type: "progress".to_string(),
+                            progress: Some(progress_data),
+                            message: format!(
+                                "Downloading {} ({}/{}): {:.1}% ({:.1} MB/s)",
+                                local_name,
+                                i + 1,
+                                files.len(),
+                                progress,
+                                speed_mbps
+                            ),
+                        };
+                        let _ = ah.emit("download-event", progress_event);
+                    }
+                    last_progress_emit = Instant::now();
+                }
+
+                if downloaded % (1024 * 1024 * 10) == 0 || downloaded == file_size {
+                    println!(
+                        "[parakeet] {}: {:.1}% ({} MB / {} MB, {:.1} MB/s)",
+                        local_name,
+                        progress,
+                        downloaded / 1024 / 1024,
+                        file_size / 1024 / 1024,
+                        speed_mbps
+                    );
+                }
+            }
+
+            file.sync_all()?;
+            total_downloaded += downloaded;
+            println!("[parakeet] Completed: {}", local_name);
+        }
+
+        // Emit completion
+        if let Some(ref ah) = app_handle {
+            let completion_event = DownloadEvent {
+                event_type: "complete".to_string(),
+                progress: Some(DownloadProgress {
+                    model_name: model_name.clone(),
+                    progress_percent: 100.0,
+                    downloaded_bytes: total_downloaded,
+                    total_bytes: total_downloaded,
+                    download_speed_mbps: 0.0,
+                    eta_seconds: Some(0),
+                    stage: "complete".to_string(),
+                    error_message: None,
+                }),
+                message: format!("{} model downloaded successfully!", model_name),
+            };
+            let _ = ah.emit("download-event", completion_event);
+        }
+
+        println!("[parakeet] All files downloaded to: {}", model_dir.display());
+        Ok(model_dir.to_string_lossy().to_string())
+    }
+}

@@ -57,6 +57,7 @@ pub fn load_settings_from_file() -> AppSettings {
         wake_word_model_size: WhisperModelSize::Base,
         terminal_emulator: None,
         preferred_ide: PreferredIde::default(),
+        orchestration_shortcut: String::new(),
     }
 }
 

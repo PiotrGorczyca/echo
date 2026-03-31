@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { listen } from "@tauri-apps/api/event";
   import { onMount } from "svelte";
 
   let { hasUnsavedChanges = $bindable(false) } = $props();
@@ -33,8 +34,8 @@
     wake_word_model_size: WhisperModelSize;
   }
 
-  type TranscriptionMode = "OpenAI" | "LocalWhisper" | "CandleWhisper" | "FasterWhisper";
-  type WhisperModelSize = "Tiny" | "Base" | "Small" | "Medium" | "Large" | "LargeTurbo" | "SmallQ5" | "MediumQ5" | "LargeV3Q5" | "LargeTurboQ5" | "LargeTurboQ8" | "DistilSmall" | "DistilMedium" | "DistilLargeV2" | "DistilLargeV3" | "MoonshineTiny" | "MoonshineBase";
+  type TranscriptionMode = "OpenAI" | "LocalWhisper" | "CandleWhisper" | "FasterWhisper" | "Parakeet";
+  type WhisperModelSize = "Tiny" | "Base" | "Small" | "Medium" | "Large" | "LargeTurbo" | "SmallQ5" | "MediumQ5" | "LargeV3Q5" | "LargeTurboQ5" | "LargeTurboQ8" | "DistilSmall" | "DistilMedium" | "DistilLargeV2" | "DistilLargeV3" | "MoonshineTiny" | "MoonshineBase" | "ParakeetTDT" | "ParakeetTDTInt8";
   type DeviceType = "Cpu" | "Cuda" | "Metal" | "Rocm";
 
   // State
@@ -73,10 +74,27 @@
   let depsInstalling: boolean = $state(false);
   let depsInstallLog: string = $state("");
 
+  // Model download state
+  let modelDownloaded: boolean | null = $state(null);
+  let modelChecking: boolean = $state(false);
+  let modelDownloading: boolean = $state(false);
+  let modelDownloadMessage: string = $state("");
+
   onMount(async () => {
     await loadAudioDevices();
     await loadSettings();
     await checkBackendDeps();
+    await checkModelStatus();
+
+    // Listen for download progress events
+    listen<{ event_type: string; message: string }>("download-event", (event) => {
+      if (event.payload.event_type === "progress") {
+        modelDownloadMessage = event.payload.message;
+      } else if (event.payload.event_type === "complete") {
+        modelDownloadMessage = event.payload.message;
+        modelDownloaded = true;
+      }
+    });
     await updateRecordingState();
     setInterval(updateRecordingState, 1000);
   });
@@ -337,9 +355,52 @@
     }
   }
 
+  async function checkModelStatus() {
+    const mode = settings.transcription_mode;
+    if (mode === "OpenAI") {
+      modelDownloaded = true;
+      return;
+    }
+    modelChecking = true;
+    try {
+      modelDownloaded = await invoke<boolean>("check_model_downloaded", { modelSize: settings.whisper_model_size });
+    } catch (err) {
+      console.error("Failed to check model status:", err);
+      modelDownloaded = null;
+    } finally {
+      modelChecking = false;
+    }
+  }
+
+  async function downloadModel() {
+    modelDownloading = true;
+    modelDownloadMessage = "Starting download...";
+    try {
+      await invoke<string>("download_model", { modelSize: settings.whisper_model_size });
+      modelDownloaded = true;
+      modelDownloadMessage = "Download complete!";
+      setTimeout(() => modelDownloadMessage = "", 3000);
+    } catch (err) {
+      console.error("Failed to download model:", err);
+      modelDownloadMessage = `Download failed: ${err}`;
+      modelDownloaded = false;
+    } finally {
+      modelDownloading = false;
+    }
+  }
+
   function onModeChanged() {
     markAsChanged();
+    // Auto-select appropriate default model for the new mode
+    if (settings.transcription_mode === "Parakeet") {
+      settings.whisper_model_size = "ParakeetTDTInt8";
+    } else if (settings.transcription_mode === "FasterWhisper" && settings.whisper_model_size.startsWith("Parakeet")) {
+      settings.whisper_model_size = "LargeTurbo";
+    } else if (settings.transcription_mode === "LocalWhisper" && (settings.whisper_model_size.startsWith("Parakeet") || settings.whisper_model_size.startsWith("Distil") || settings.whisper_model_size.startsWith("Moonshine"))) {
+      settings.whisper_model_size = "LargeTurboQ5";
+    }
     checkBackendDeps();
+    checkModelStatus();
   }
 
   async function cleanupTestRecording() {
@@ -378,8 +439,12 @@
       <h3>Transcription Mode</h3>
       <div class="radio-group">
         <label class="radio-label">
+          <input type="radio" name="transcription_mode" value="Parakeet" bind:group={settings.transcription_mode} onchange={onModeChanged} />
+          <span class="radio-text">Parakeet TDT v3 (Recommended - fastest, no Python, 25 languages)</span>
+        </label>
+        <label class="radio-label">
           <input type="radio" name="transcription_mode" value="FasterWhisper" bind:group={settings.transcription_mode} onchange={onModeChanged} />
-          <span class="radio-text">Faster Whisper (Recommended - fastest local)</span>
+          <span class="radio-text">Faster Whisper (CTranslate2, requires Python)</span>
         </label>
         <label class="radio-label">
           <input type="radio" name="transcription_mode" value="LocalWhisper" bind:group={settings.transcription_mode} onchange={onModeChanged} />
@@ -438,7 +503,7 @@
     {/if}
 
     <!-- Model Configuration -->
-    {#if settings.transcription_mode === "LocalWhisper" || settings.transcription_mode === "CandleWhisper" || settings.transcription_mode === "FasterWhisper"}
+    {#if settings.transcription_mode === "LocalWhisper" || settings.transcription_mode === "CandleWhisper" || settings.transcription_mode === "FasterWhisper" || settings.transcription_mode === "Parakeet"}
       <section class="settings-section card">
         <h3>Model Configuration</h3>
         <div class="model-settings">
@@ -448,9 +513,14 @@
               id="model-size"
               bind:value={settings.whisper_model_size}
               class="device-select"
-              onchange={markAsChanged}
+              onchange={() => { markAsChanged(); checkModelStatus(); }}
             >
-              {#if settings.transcription_mode === "FasterWhisper"}
+              {#if settings.transcription_mode === "Parakeet"}
+                <optgroup label="Parakeet TDT v3 (25 European Languages)">
+                  <option value="ParakeetTDTInt8">Parakeet TDT INT8 (~640 MB) - Recommended, fastest CPU</option>
+                  <option value="ParakeetTDT">Parakeet TDT FP32 (~2.4 GB) - Full precision</option>
+                </optgroup>
+              {:else if settings.transcription_mode === "FasterWhisper"}
                 <optgroup label="Recommended">
                   <option value="LargeTurbo">Turbo - Best speed/accuracy balance</option>
                   <option value="Large">Large V3 - Best accuracy</option>
@@ -522,6 +592,28 @@
             <div class="model-info">
               <span class="info-label">Model Path:</span>
               <span class="info-value">{settings.whisper_model_path}</span>
+            </div>
+          {/if}
+          <!-- Model Download Status -->
+          {#if settings.transcription_mode !== "OpenAI"}
+            <div class="model-download-status">
+              {#if modelChecking}
+                <div class="deps-status deps-checking">Checking model status...</div>
+              {:else if modelDownloaded === true}
+                <div class="deps-status deps-ok">Model downloaded</div>
+              {:else if modelDownloaded === false}
+                <div class="deps-status deps-missing">
+                  <span>Model not downloaded</span>
+                  <button onclick={downloadModel} class="btn btn-primary btn-sm" disabled={modelDownloading}>
+                    {modelDownloading ? "Downloading..." : "Download Model"}
+                  </button>
+                </div>
+              {/if}
+              {#if modelDownloadMessage}
+                <div class="message {modelDownloadMessage.includes('failed') || modelDownloadMessage.includes('Failed') ? 'error' : 'success'}" style="margin-top: 8px;">
+                  {modelDownloadMessage}
+                </div>
+              {/if}
             </div>
           {/if}
         </div>
@@ -1040,5 +1132,11 @@
     overflow-y: auto;
     white-space: pre-wrap;
     word-break: break-all;
+  }
+
+  .model-download-status {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-primary, #404040);
   }
 </style>

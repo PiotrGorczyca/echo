@@ -90,7 +90,7 @@ impl TranscriptionBackend for WhisperLocalBackend {
         params.set_no_context(true);
         params.set_single_segment(false);
         params.set_suppress_blank(true);
-        params.set_suppress_non_speech_tokens(true);
+        params.set_suppress_nst(true);
         
         // Speed optimizations
         params.set_token_timestamps(false); // Disable token-level timestamps for speed
@@ -100,12 +100,13 @@ impl TranscriptionBackend for WhisperLocalBackend {
         state.full(params, &samples)?;
         
         // Get the transcribed text
-        let num_segments = state.full_n_segments()?;
+        let num_segments = state.full_n_segments();
         let mut text = String::new();
-        
+
         for i in 0..num_segments {
-            let segment = state.full_get_segment_text(i)?;
-            text.push_str(&segment);
+            let segment = state.get_segment(i)
+                .ok_or_else(|| anyhow::anyhow!("Failed to get segment {}", i))?;
+            text.push_str(segment.to_str_lossy()?.as_ref());
             text.push(' ');
         }
         

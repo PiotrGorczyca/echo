@@ -109,6 +109,7 @@ impl FasterWhisperBackend {
             WhisperModelSize::DistilLargeV2 => "distil-whisper/distil-large-v2",
             WhisperModelSize::DistilLargeV3 => "distil-whisper/distil-large-v3",
             WhisperModelSize::MoonshineTiny | WhisperModelSize::MoonshineBase => "base",
+            WhisperModelSize::ParakeetTDT | WhisperModelSize::ParakeetTDTInt8 => "base",
         }
     }
 

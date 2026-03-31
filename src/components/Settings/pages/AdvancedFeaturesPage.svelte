@@ -7,6 +7,7 @@
 
   interface AppSettings {
     preferred_ide: PreferredIde;
+    orchestration_shortcut: string;
     // ... other settings we don't need here
     [key: string]: unknown;
   }
@@ -20,6 +21,10 @@
   let isSavingIde = $state(false);
   let ideMessage = $state<string | null>(null);
 
+  // Orchestration shortcut
+  let orchestrationShortcut = $state("");
+  let shortcutMessage = $state<string | null>(null);
+
   onMount(async () => {
     await loadSettings();
   });
@@ -28,6 +33,7 @@
     try {
       const settings = await invoke<AppSettings>("get_settings");
       preferredIde = settings.preferred_ide || "ClaudeCode";
+      orchestrationShortcut = settings.orchestration_shortcut || "";
     } catch (err) {
       console.error("Failed to load settings:", err);
     }
@@ -49,6 +55,20 @@
       ideMessage = `Failed to save: ${err}`;
     } finally {
       isSavingIde = false;
+    }
+  }
+
+  async function saveOrchestrationShortcut() {
+    shortcutMessage = null;
+    try {
+      const settings = await invoke<AppSettings>("get_settings");
+      settings.orchestration_shortcut = orchestrationShortcut;
+      await invoke("save_settings", { settings });
+      shortcutMessage = orchestrationShortcut ? "Shortcut enabled!" : "Shortcut disabled.";
+      setTimeout(() => shortcutMessage = null, 2000);
+    } catch (err) {
+      console.error("Failed to save orchestration shortcut:", err);
+      shortcutMessage = `Failed to save: ${err}`;
     }
   }
 
@@ -138,7 +158,7 @@
     <div class="header" style="margin-top: 24px;">
       <h3>🤖 Task Orchestrator</h3>
       <p class="subtitle">
-        Double-tap <strong>Shift</strong> to send a multi-repo task orchestration prompt to Claude Code.
+        Send a multi-repo task orchestration prompt to Claude Code.
       </p>
     </div>
 
@@ -148,6 +168,37 @@
           This replaces the old MCP integrations. Echo will gather your tracked repositories + tasks and
           hand them off to Claude Code for cross-repo task planning and updates.
         </p>
+
+        <div class="shortcut-setting">
+          <label class="shortcut-label">Keyboard shortcut</label>
+          <div class="shortcut-options">
+            <label class="shortcut-option {orchestrationShortcut === '' ? 'selected' : ''}">
+              <input
+                type="radio"
+                name="orchestration_shortcut"
+                value=""
+                bind:group={orchestrationShortcut}
+                onchange={saveOrchestrationShortcut}
+              />
+              <span>Disabled</span>
+            </label>
+            <label class="shortcut-option {orchestrationShortcut === 'ShiftShift' ? 'selected' : ''}">
+              <input
+                type="radio"
+                name="orchestration_shortcut"
+                value="ShiftShift"
+                bind:group={orchestrationShortcut}
+                onchange={saveOrchestrationShortcut}
+              />
+              <span>Shift + Shift (double-tap)</span>
+            </label>
+          </div>
+          {#if shortcutMessage}
+            <div class="message {shortcutMessage.includes('Failed') ? 'error' : 'success'}">
+              {shortcutMessage}
+            </div>
+          {/if}
+        </div>
 
         <div class="actions">
           <button class="btn btn-primary" onclick={orchestrate} disabled={isRunning}>
@@ -313,5 +364,49 @@
   .ide-desc {
     font-size: 0.85rem;
     color: var(--text-secondary);
+  }
+
+  /* Shortcut setting */
+  .shortcut-setting {
+    margin-bottom: 16px;
+  }
+
+  .shortcut-label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: var(--text-primary);
+  }
+
+  .shortcut-options {
+    display: flex;
+    gap: 12px;
+  }
+
+  .shortcut-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border: 2px solid var(--border-primary);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+  }
+
+  .shortcut-option:hover {
+    border-color: var(--border-highlight, #555);
+  }
+
+  .shortcut-option.selected {
+    border-color: var(--accent-primary);
+    background: rgba(74, 144, 226, 0.1);
+  }
+
+  .shortcut-option input[type="radio"] {
+    display: none;
   }
 </style>

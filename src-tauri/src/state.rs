@@ -52,6 +52,9 @@ pub struct AppSettings {
     // IDE preference for "Work on this" feature
     #[serde(default)]
     pub preferred_ide: PreferredIde,
+    // Orchestration hotkey: "ShiftShift" for double-shift, or empty/"" for disabled
+    #[serde(default)]
+    pub orchestration_shortcut: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -139,6 +142,7 @@ impl Default for AppState {
                 wake_word_model_size: WhisperModelSize::Base,
                 terminal_emulator: None,
                 preferred_ide: PreferredIde::default(),
+                orchestration_shortcut: String::new(),
             },
             last_alt_press: None,
             alt_tap_count: 0,
